@@ -169,7 +169,7 @@ def main():
     writer = SummaryWriter(log_dir=str(config.LOGS_DIR / time.strftime("%Y%m%d-%H%M%S")))
 
     # Training loop
-    best_score = 0.0
+    best_val_loss = float("inf")
     save_path = config.MODELS_DIR / "best.pt"
     patience = config.EARLY_STOPPING_PATIENCE
     no_improve = 0
@@ -195,12 +195,12 @@ def main():
         print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val score: {val_score:.5f}")
         print_metrics(val_metrics)
 
-        # Save best / early stopping (based on competition weighted score)
-        if val_score > best_score:
-            best_score = val_score
+        # Save best / early stopping (based on val loss)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
             no_improve = 0
             torch.save(model.state_dict(), save_path)
-            print(f"✓ Model saved → {save_path}  (score: {best_score:.5f})")
+            print(f"✓ Model saved → {save_path}")
         else:
             no_improve += 1
             if no_improve >= patience:
