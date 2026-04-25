@@ -170,7 +170,7 @@ def main():
 
     # Training loop
     best_val_loss = float("inf")
-    save_path = config.MODELS_DIR / "best.pt"
+    save_path = Path("/content/best.pt")
     patience = config.EARLY_STOPPING_PATIENCE
     no_improve = 0
 
