@@ -67,7 +67,7 @@ NUM_CLASSES = {
 PRETRAINED_MODEL = "hfl/chinese-macbert-base"
 MAX_SEQ_LEN = 256
 HIDDEN_DIM = 768          # must match pretrained encoder
-CLASSIFIER_DROPOUT = 0.1
+CLASSIFIER_DROPOUT = 0.2
 
 # ─── Training ─────────────────────────────────────────────────────────
 EPOCHS = 20
@@ -75,7 +75,7 @@ BATCH_SIZE = 16
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 1e-2
 WARMUP_RATIO = 0.1
-EARLY_STOPPING_PATIENCE = 3
+EARLY_STOPPING_PATIENCE = 5
 SEED = 42
 VAL_RATIO = 0.15
 TEST_RATIO = 0.15
