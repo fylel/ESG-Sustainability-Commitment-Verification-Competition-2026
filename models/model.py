@@ -64,7 +64,7 @@ class ESGMultiTaskModel(nn.Module):
         attention_mask: torch.Tensor,
     ) -> dict:
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        cls_hidden = outputs.last_hidden_state[:, 0, :]  # [CLS] vector
+        cls_hidden = outputs.last_hidden_state[:, 0, :].float()  # [CLS] vector
 
         logits = {
             task: head(cls_hidden)
