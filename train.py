@@ -170,6 +170,8 @@ def main():
     # Training loop
     best_val_loss = float("inf")
     save_path = config.MODELS_DIR / "best.pt"
+    patience = config.EARLY_STOPPING_PATIENCE
+    no_improve = 0
 
     for epoch in range(1, args.epochs + 1):
         print(f"\n{'=' * 15}  Epoch {epoch}/{args.epochs}  {'=' * 15}")
@@ -189,11 +191,17 @@ def main():
         print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}")
         print_metrics(val_metrics)
 
-        # Save best
+        # Save best / early stopping
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            no_improve = 0
             torch.save(model.state_dict(), save_path)
             print(f"✓ Model saved → {save_path}")
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
 
     writer.close()
 

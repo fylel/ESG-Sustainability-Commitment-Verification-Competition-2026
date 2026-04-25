@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, Subset
+from sklearn.model_selection import train_test_split
 from transformers import BertTokenizer
 
 import sys, os
@@ -128,15 +130,26 @@ def get_dataloaders(
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
     dataset = ESGDataset(samples, tokenizer)
 
-    total = len(dataset)
-    n_test = int(total * test_ratio)
-    n_val = int(total * val_ratio)
-    n_train = total - n_val - n_test
+    # stratify key: combine all task labels into one string per sample
+    strat_keys = [
+        "_".join(str(lbl[t]) for t in config.TASK_NAMES)
+        for lbl in dataset.labels
+    ]
+    indices = np.arange(len(dataset))
 
-    generator = torch.Generator().manual_seed(seed)
-    train_ds, val_ds, test_ds = random_split(
-        dataset, [n_train, n_val, n_test], generator=generator
+    train_idx, test_idx = train_test_split(
+        indices, test_size=test_ratio, random_state=seed, stratify=strat_keys
     )
+    val_ratio_adjusted = val_ratio / (1 - test_ratio)
+    strat_keys_train = [strat_keys[i] for i in train_idx]
+    train_idx, val_idx = train_test_split(
+        train_idx, test_size=val_ratio_adjusted, random_state=seed,
+        stratify=strat_keys_train
+    )
+
+    train_ds = Subset(dataset, train_idx)
+    val_ds   = Subset(dataset, val_idx)
+    test_ds  = Subset(dataset, test_idx)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
