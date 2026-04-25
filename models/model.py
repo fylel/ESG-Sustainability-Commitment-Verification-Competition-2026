@@ -17,7 +17,7 @@ Architecture
 
 import torch
 import torch.nn as nn
-from transformers import BertModel
+from transformers import AutoModel
 
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -51,7 +51,7 @@ class ESGMultiTaskModel(nn.Module):
         dropout: float = config.CLASSIFIER_DROPOUT,
     ):
         super().__init__()
-        self.encoder = BertModel.from_pretrained(pretrained)
+        self.encoder = AutoModel.from_pretrained(pretrained)
 
         self.heads = nn.ModuleDict({
             task: TaskHead(hidden_dim, n_cls, dropout)

@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 from sklearn.model_selection import train_test_split
-from transformers import BertTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -74,7 +74,7 @@ class ESGDataset(Dataset):
     def __init__(
         self,
         samples: List[dict],
-        tokenizer: BertTokenizer,
+        tokenizer: PreTrainedTokenizerBase,
         max_seq_len: int = config.MAX_SEQ_LEN,
     ):
         self.tokenizer = tokenizer
@@ -126,7 +126,7 @@ def get_dataloaders(
 ):
     """Return (train_loader, val_loader, test_loader[, train_ds])."""
 
-    tokenizer = BertTokenizer.from_pretrained(config.PRETRAINED_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
     dataset = ESGDataset(samples, tokenizer)
 
