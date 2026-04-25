@@ -31,7 +31,7 @@ from utils.metrics import compute_all_metrics, print_metrics
 # Loss helper
 # ──────────────────────────────────────────────────────────────────────
 
-def build_criteria(train_ds) -> dict:
+def build_criteria(train_ds, device) -> dict:
     """One CrossEntropyLoss per task with class weights computed from training data."""
     criteria = {}
     for task in config.TASK_NAMES:
@@ -44,7 +44,7 @@ def build_criteria(train_ds) -> dict:
             present_weights = compute_class_weight("balanced", classes=present, y=valid)
             for cls, w in zip(present, present_weights):
                 weights[cls] = w
-        weight_tensor = torch.tensor(weights, dtype=torch.float)
+        weight_tensor = torch.tensor(weights, dtype=torch.float).to(device)
         criteria[task] = nn.CrossEntropyLoss(
             weight=weight_tensor, ignore_index=config.IGNORE_INDEX
         )
@@ -151,7 +151,7 @@ def main():
 
     # Model
     model = ESGMultiTaskModel().to(device)
-    criteria = build_criteria(train_ds)
+    criteria = build_criteria(train_ds, device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=config.WEIGHT_DECAY
     )
