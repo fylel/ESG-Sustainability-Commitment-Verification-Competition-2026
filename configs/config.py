@@ -72,7 +72,7 @@ CLASSIFIER_DROPOUT = 0.1
 # ─── Training ─────────────────────────────────────────────────────────
 EPOCHS = 20
 BATCH_SIZE = 16
-LEARNING_RATE = 2e-5
+LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 1e-2
 WARMUP_RATIO = 0.1
 EARLY_STOPPING_PATIENCE = 3
