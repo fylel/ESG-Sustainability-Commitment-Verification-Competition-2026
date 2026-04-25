@@ -37,14 +37,14 @@ TASK_SOURCE_FIELDS = {
 IGNORE_INDEX = -1  # only for truly missing labels (empty string)
 
 COMMITMENT_MAP = {"No": 0, "Yes": 1, "": IGNORE_INDEX}
-EVIDENCE_MAP   = {"No": 0, "Yes": 1, "N/A": 2, "": IGNORE_INDEX}
-CLARITY_MAP    = {"Clear": 0, "Not Clear": 1, "Misleading": 2, "N/A": 3, "": IGNORE_INDEX}
+EVIDENCE_MAP   = {"No": 0, "Yes": 1, "N/A": IGNORE_INDEX, "": IGNORE_INDEX}
+CLARITY_MAP    = {"Clear": 0, "Not Clear": 1, "Misleading": 2, "N/A": IGNORE_INDEX, "": IGNORE_INDEX}
 TIMELINE_MAP   = {
     "already": 0,
     "within_2_years": 1,
     "between_2_and_5_years": 2,
     "more_than_5_years": 3,
-    "N/A": 4,
+    "N/A": IGNORE_INDEX,
     "": IGNORE_INDEX,
 }
 
@@ -55,16 +55,16 @@ LABEL_MAPS = {
     "timeline": TIMELINE_MAP,
 }
 
-# N/A is now a real class, so class counts increase
+# N/A never appears in actual data — treated as IGNORE_INDEX
 NUM_CLASSES = {
     "commitment": 2,
-    "evidence": 3,
-    "clarity": 4,
-    "timeline": 5,
+    "evidence": 2,
+    "clarity": 3,
+    "timeline": 4,
 }
 
 # ─── Model ────────────────────────────────────────────────────────────
-PRETRAINED_MODEL = "hfl/chinese-lert-base"
+PRETRAINED_MODEL = "hfl/chinese-macbert-base"
 MAX_SEQ_LEN = 256
 HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.2
