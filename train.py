@@ -37,8 +37,13 @@ def build_criteria(train_ds) -> dict:
     for task in config.TASK_NAMES:
         task_labels = [train_ds.dataset.labels[i][task] for i in train_ds.indices]
         valid = [l for l in task_labels if l != config.IGNORE_INDEX]
-        classes = np.arange(config.NUM_CLASSES[task])
-        weights = compute_class_weight("balanced", classes=classes, y=valid)
+        num_classes = config.NUM_CLASSES[task]
+        weights = np.ones(num_classes, dtype=np.float64)
+        present = np.unique(valid)
+        if len(present) > 0:
+            present_weights = compute_class_weight("balanced", classes=present, y=valid)
+            for cls, w in zip(present, present_weights):
+                weights[cls] = w
         weight_tensor = torch.tensor(weights, dtype=torch.float)
         criteria[task] = nn.CrossEntropyLoss(
             weight=weight_tensor, ignore_index=config.IGNORE_INDEX
