@@ -73,11 +73,12 @@ HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.1
 
 # ─── Training ─────────────────────────────────────────────────────────
-EPOCHS = 9
+EPOCHS = 20
 BATCH_SIZE = 16
 LEARNING_RATE = 2e-5
 WEIGHT_DECAY = 1e-2
 WARMUP_RATIO = 0.1
+EARLY_STOPPING_PATIENCE = 3
 SEED = 42
 VAL_RATIO = 0.15
 TEST_RATIO = 0.15
