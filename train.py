@@ -25,6 +25,7 @@ from configs import config
 from models.model import ESGMultiTaskModel
 from utils.dataset import get_dataloaders
 from utils.metrics import compute_all_metrics, print_metrics
+from evaluate import evaluate_detailed
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ def evaluate(model, loader, device, criteria):
 
     avg_loss = running_loss / max(n_samples, 1)
     metrics = compute_all_metrics(all_preds, all_golds)
-    return avg_loss, metrics
+    return avg_loss, metrics, all_preds, all_golds
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -168,7 +169,7 @@ def main():
     writer = SummaryWriter(log_dir=str(config.LOGS_DIR / time.strftime("%Y%m%d-%H%M%S")))
 
     # Training loop
-    best_val_loss = float("inf")
+    best_score = 0.0
     save_path = config.MODELS_DIR / "best.pt"
     patience = config.EARLY_STOPPING_PATIENCE
     no_improve = 0
@@ -177,26 +178,29 @@ def main():
         print(f"\n{'=' * 15}  Epoch {epoch}/{args.epochs}  {'=' * 15}")
 
         train_loss = train_one_epoch(model, train_loader, device, optimizer, criteria)
-        val_loss, val_metrics = evaluate(model, val_loader, device, criteria)
+        val_loss, val_metrics, val_preds, val_golds = evaluate(model, val_loader, device, criteria)
+        val_results = evaluate_detailed(val_preds, val_golds)
+        val_score = val_results["final_weighted_score"]
 
         scheduler.step()
 
         # Log
         writer.add_scalar("loss/train", train_loss, epoch)
         writer.add_scalar("loss/val", val_loss, epoch)
+        writer.add_scalar("score/val_weighted", val_score, epoch)
         for task in config.TASK_NAMES:
             writer.add_scalar(f"acc/{task}", val_metrics[task]["accuracy"], epoch)
             writer.add_scalar(f"f1/{task}", val_metrics[task]["f1_macro"], epoch)
 
-        print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}")
+        print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val score: {val_score:.5f}")
         print_metrics(val_metrics)
 
-        # Save best / early stopping
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # Save best / early stopping (based on competition weighted score)
+        if val_score > best_score:
+            best_score = val_score
             no_improve = 0
             torch.save(model.state_dict(), save_path)
-            print(f"✓ Model saved → {save_path}")
+            print(f"✓ Model saved → {save_path}  (score: {best_score:.5f})")
         else:
             no_improve += 1
             if no_improve >= patience:
@@ -208,8 +212,9 @@ def main():
     # Final test evaluation
     print("\n" + "=" * 20 + "  Test Set  " + "=" * 20)
     model.load_state_dict(torch.load(save_path, map_location=device))
-    test_loss, test_metrics = evaluate(model, test_loader, device, criteria)
-    print(f"Test loss: {test_loss:.4f}")
+    test_loss, test_metrics, test_preds, test_golds = evaluate(model, test_loader, device, criteria)
+    test_results = evaluate_detailed(test_preds, test_golds)
+    print(f"Test loss: {test_loss:.4f}  |  Test score: {test_results['final_weighted_score']:.5f}")
     print_metrics(test_metrics)
 
 
