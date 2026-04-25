@@ -83,9 +83,9 @@ TEST_RATIO = 0.15
 # ─── Task Loss Weights (for combined loss) ────────────────────────────
 TASK_LOSS_WEIGHTS = {
     "commitment": 0.20,
-    "evidence": 0.30,
+    "evidence": 0.35,
     "clarity": 0.35,
-    "timeline": 0.15,
+    "timeline": 0.10,
 }
 
 # ─── Competition Evaluation Weights ──────────────────────────────────
