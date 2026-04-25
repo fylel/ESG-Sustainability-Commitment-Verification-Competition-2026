@@ -17,6 +17,7 @@ import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.utils.class_weight import compute_class_weight
 
 import sys, os
 sys.path.append(os.path.dirname(__file__))
@@ -30,12 +31,19 @@ from utils.metrics import compute_all_metrics, print_metrics
 # Loss helper
 # ──────────────────────────────────────────────────────────────────────
 
-def build_criteria() -> dict:
-    """One CrossEntropyLoss per task, each ignoring IGNORE_INDEX."""
-    return {
-        task: nn.CrossEntropyLoss(ignore_index=config.IGNORE_INDEX)
-        for task in config.TASK_NAMES
-    }
+def build_criteria(train_ds) -> dict:
+    """One CrossEntropyLoss per task with class weights computed from training data."""
+    criteria = {}
+    for task in config.TASK_NAMES:
+        task_labels = [train_ds.dataset.labels[i][task] for i in train_ds.indices]
+        valid = [l for l in task_labels if l != config.IGNORE_INDEX]
+        classes = np.arange(config.NUM_CLASSES[task])
+        weights = compute_class_weight("balanced", classes=classes, y=valid)
+        weight_tensor = torch.tensor(weights, dtype=torch.float)
+        criteria[task] = nn.CrossEntropyLoss(
+            weight=weight_tensor, ignore_index=config.IGNORE_INDEX
+        )
+    return criteria
 
 
 def combined_loss(logits: dict, labels: torch.Tensor, criteria: dict) -> torch.Tensor:
@@ -130,15 +138,15 @@ def main():
     print(f"Device: {device}")
 
     # Data
-    train_loader, val_loader, test_loader = get_dataloaders(
-        Path(args.data), batch_size=args.batch_size
+    train_loader, val_loader, test_loader, train_ds = get_dataloaders(
+        Path(args.data), batch_size=args.batch_size, return_train_ds=True
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")
 
     # Model
     model = ESGMultiTaskModel().to(device)
-    criteria = build_criteria()
+    criteria = build_criteria(train_ds)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=config.WEIGHT_DECAY
     )

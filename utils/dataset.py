@@ -120,8 +120,9 @@ def get_dataloaders(
     val_ratio: float = config.VAL_RATIO,
     test_ratio: float = config.TEST_RATIO,
     seed: int = config.SEED,
-) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """Return (train_loader, val_loader, test_loader)."""
+    return_train_ds: bool = False,
+):
+    """Return (train_loader, val_loader, test_loader[, train_ds])."""
 
     tokenizer = BertTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
@@ -141,4 +142,6 @@ def get_dataloaders(
     val_loader = DataLoader(val_ds, batch_size=batch_size)
     test_loader = DataLoader(test_ds, batch_size=batch_size)
 
+    if return_train_ds:
+        return train_loader, val_loader, test_loader, train_ds
     return train_loader, val_loader, test_loader
