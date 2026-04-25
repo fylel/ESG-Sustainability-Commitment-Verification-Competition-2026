@@ -67,7 +67,7 @@ NUM_CLASSES = {
 }
 
 # ─── Model ────────────────────────────────────────────────────────────
-PRETRAINED_MODEL = "bert-base-chinese"
+PRETRAINED_MODEL = "hfl/chinese-macbert-base"
 MAX_SEQ_LEN = 256
 HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.1
