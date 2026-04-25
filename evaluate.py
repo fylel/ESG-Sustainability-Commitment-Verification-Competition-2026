@@ -135,7 +135,7 @@ def plot_f1_scores(results, save_path="f1_scores.png"):
 def main():
     parser = argparse.ArgumentParser(description="Evaluate ESG Multi-task Classifier")
     parser.add_argument("--data", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, default=str(config.MODELS_DIR / "best.pt"))
+    parser.add_argument("--checkpoint", type=str, default="/content/best.pt")
     parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
     args = parser.parse_args()
 
