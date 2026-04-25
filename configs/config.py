@@ -34,20 +34,17 @@ TASK_SOURCE_FIELDS = {
     "timeline": "verification_timeline",
 }
 
-IGNORE_INDEX = -1  # label value for samples excluded from a task's loss
+IGNORE_INDEX = -1  # only for truly missing labels (empty string)
 
-COMMITMENT_MAP = {"No": 0, "Yes": 1}
-EVIDENCE_MAP = {"No": 0, "Yes": 1, "N/A": IGNORE_INDEX, "": IGNORE_INDEX}
-CLARITY_MAP = {
-    "Clear": 0, "Not Clear": 1, "Misleading": 2,
-    "N/A": IGNORE_INDEX, "": IGNORE_INDEX,
-}
-TIMELINE_MAP = {
+COMMITMENT_MAP = {"No": 0, "Yes": 1, "": IGNORE_INDEX}
+EVIDENCE_MAP   = {"No": 0, "Yes": 1, "N/A": 2, "": IGNORE_INDEX}
+CLARITY_MAP    = {"Clear": 0, "Not Clear": 1, "Misleading": 2, "N/A": 3, "": IGNORE_INDEX}
+TIMELINE_MAP   = {
     "already": 0,
     "within_2_years": 1,
     "between_2_and_5_years": 2,
     "more_than_5_years": 3,
-    "N/A": IGNORE_INDEX,
+    "N/A": 4,
     "": IGNORE_INDEX,
 }
 
@@ -58,12 +55,12 @@ LABEL_MAPS = {
     "timeline": TIMELINE_MAP,
 }
 
-# Number of real classes per task (excluding IGNORE_INDEX)
+# N/A is now a real class, so class counts increase
 NUM_CLASSES = {
     "commitment": 2,
-    "evidence": 2,
-    "clarity": 3,
-    "timeline": 4,
+    "evidence": 3,
+    "clarity": 4,
+    "timeline": 5,
 }
 
 # ─── Model ────────────────────────────────────────────────────────────
@@ -85,10 +82,10 @@ TEST_RATIO = 0.15
 
 # ─── Task Loss Weights (for combined loss) ────────────────────────────
 TASK_LOSS_WEIGHTS = {
-    "commitment": 1.0,
-    "evidence": 1.0,
-    "clarity": 1.0,
-    "timeline": 1.0,
+    "commitment": 0.20,
+    "evidence": 0.30,
+    "clarity": 0.35,
+    "timeline": 0.15,
 }
 
 # ─── Competition Evaluation Weights ──────────────────────────────────
