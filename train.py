@@ -4,6 +4,9 @@ train.py — Multi-task training loop for VeriPromiseESG4K.
 Usage (Colab):
     !python train.py --data data/raw/esg4k.json --epochs 10
 
+Hyperparameter tuning (Optuna):
+    !python train.py --data data/raw/esg4k.json --tune --n_trials 20 --tune_epochs 5
+
 Usage (script):
     python train.py --data data/raw/esg4k.json
 """
@@ -18,6 +21,9 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.utils.class_weight import compute_class_weight
+import optuna
+from optuna.samplers import TPESampler
+from optuna.pruners import MedianPruner
 
 import sys, os
 sys.path.append(os.path.dirname(__file__))
@@ -63,6 +69,47 @@ def combined_loss(logits: dict, labels: torch.Tensor, criteria: dict) -> torch.T
         task_loss = criteria[task](logits[task], task_labels)
         total = total + config.TASK_LOSS_WEIGHTS[task] * task_loss
     return total
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Optuna objective
+# ──────────────────────────────────────────────────────────────────────
+
+def objective(trial, args, device, train_loader, val_loader, train_ds):
+    encoder_lr   = trial.suggest_float("encoder_lr",   1e-5, 5e-5, log=True)
+    head_lr      = trial.suggest_float("head_lr",      1e-4, 1e-3, log=True)
+    dropout      = trial.suggest_float("dropout",      0.1,  0.4)
+    weight_decay = trial.suggest_float("weight_decay", 1e-3, 1e-1, log=True)
+
+    model    = ESGMultiTaskModel(dropout=dropout).to(device)
+    criteria = build_criteria(train_ds, device)
+    optimizer = torch.optim.AdamW([
+        {"params": model.encoder.parameters(), "lr": encoder_lr},
+        {"params": model.heads.parameters(),   "lr": head_lr},
+    ], weight_decay=weight_decay)
+
+    total_steps  = len(train_loader) * args.tune_epochs
+    warmup_steps = int(total_steps * config.WARMUP_RATIO)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=[encoder_lr, head_lr],
+        total_steps=total_steps,
+        pct_start=max(warmup_steps / total_steps, 1e-4),
+        anneal_strategy="cos",
+    )
+
+    best_score = 0.0
+    for epoch in range(1, args.tune_epochs + 1):
+        train_one_epoch(model, train_loader, device, optimizer, criteria)
+        _, _, val_preds, val_golds = evaluate(model, val_loader, device, criteria)
+        val_score = evaluate_detailed(val_preds, val_golds)["final_weighted_score"]
+        scheduler.step()
+
+        best_score = max(best_score, val_score)
+        trial.report(val_score, epoch)
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+
+    return best_score
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -137,6 +184,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=config.EPOCHS)
     parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=config.LEARNING_RATE)
+    parser.add_argument("--save_path", type=str, default=str(config.MODELS_DIR / "best.pt"))
+    parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter search")
+    parser.add_argument("--n_trials", type=int, default=20, help="Number of Optuna trials")
+    parser.add_argument("--tune_epochs", type=int, default=5, help="Epochs per trial")
     args = parser.parse_args()
 
     # Device
@@ -149,6 +200,27 @@ def main():
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")
+
+    # ── Optuna tuning mode ────────────────────────────────────────────
+    if args.tune:
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=TPESampler(seed=config.SEED),
+            pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=2),
+        )
+        study.optimize(
+            lambda trial: objective(trial, args, device, train_loader, val_loader, train_ds),
+            n_trials=args.n_trials,
+            show_progress_bar=True,
+        )
+        print("\n=== Best Trial ===")
+        best = study.best_trial
+        print(f"  Score : {best.value:.5f}")
+        print(f"  Params:")
+        for k, v in best.params.items():
+            print(f"    {k}: {v}")
+        return
 
     # Model
     model = ESGMultiTaskModel().to(device)
