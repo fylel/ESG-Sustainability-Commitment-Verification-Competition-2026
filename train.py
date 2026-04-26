@@ -204,6 +204,12 @@ def main():
     # ── Optuna tuning mode ────────────────────────────────────────────
     if args.tune:
         optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        def _trial_callback(study, trial):
+            print(f"[Trial {trial.number:>2}] score={trial.value:.5f} | "
+                  + " | ".join(f"{k}={v:.2e}" if isinstance(v, float) else f"{k}={v}"
+                                for k, v in trial.params.items()))
+
         study = optuna.create_study(
             direction="maximize",
             sampler=TPESampler(seed=config.SEED),
@@ -213,6 +219,7 @@ def main():
             lambda trial: objective(trial, args, device, train_loader, val_loader, train_ds),
             n_trials=args.n_trials,
             show_progress_bar=True,
+            callbacks=[_trial_callback],
         )
         print("\n=== Best Trial ===")
         best = study.best_trial
