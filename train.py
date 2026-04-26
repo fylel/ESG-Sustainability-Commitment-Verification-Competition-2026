@@ -193,6 +193,9 @@ def main():
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
+    print(f"Model  : {config.PRETRAINED_MODEL}")
+    print(f"LR     : {args.lr}  |  Batch: {args.batch_size}  |  Epochs: {args.epochs}")
+    print(f"Dropout: {config.CLASSIFIER_DROPOUT}  |  WeightDecay: {config.WEIGHT_DECAY}  |  MaxLen: {config.MAX_SEQ_LEN}")
 
     # Data
     train_loader, val_loader, test_loader, train_ds = get_dataloaders(
