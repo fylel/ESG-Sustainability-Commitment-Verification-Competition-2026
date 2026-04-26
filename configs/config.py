@@ -70,7 +70,7 @@ HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.2
 
 # ─── Training ─────────────────────────────────────────────────────────
-EPOCHS = 30
+EPOCHS = 23
 BATCH_SIZE = 16
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 1e-2
