@@ -1,0 +1,42 @@
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.env
+.venv/
+
+# Trained model weights
+models/*.pt
+models/*.bin
+models/*.safetensors
+
+# TensorBoard logs
+logs/*/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Optuna DB
+*.db
+
+# Processed data cache
+data/processed/*
+!data/processed/.gitkeep
