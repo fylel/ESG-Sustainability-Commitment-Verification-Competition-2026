@@ -249,6 +249,7 @@ def main():
 
     # TensorBoard
     writer = SummaryWriter(log_dir=str(config.LOGS_DIR / time.strftime("%Y%m%d-%H%M%S")))
+    writer.add_text("config", f"model={config.PRETRAINED_MODEL}, batch={config.BATCH_SIZE}, lr={config.LEARNING_RATE}, epochs={args.epochs}")
 
     # Training loop
     best_val_loss = float("inf")
