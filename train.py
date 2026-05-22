@@ -42,7 +42,7 @@ def build_criteria(train_ds, device) -> dict:
     """One CrossEntropyLoss per task with class weights computed from training data."""
     criteria = {}
     for task in config.TASK_NAMES:
-        task_labels = [train_ds.dataset.labels[i][task] for i in train_ds.indices]
+        task_labels = [train_ds.labels[i][task] for i in range(len(train_ds))]
         valid = [l for l in task_labels if l != config.IGNORE_INDEX]
         num_classes = config.NUM_CLASSES[task]
         weights = np.ones(num_classes, dtype=np.float64)
@@ -185,6 +185,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=config.LEARNING_RATE)
     parser.add_argument("--save_path", type=str, default=str(config.MODELS_DIR / "best.pt"))
+    parser.add_argument("--augment", nargs="+", default=None, metavar="FILE",
+                        help="Augmented JSON files appended to train split only")
     parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter search")
     parser.add_argument("--n_trials", type=int, default=20, help="Number of Optuna trials")
     parser.add_argument("--tune_epochs", type=int, default=5, help="Epochs per trial")
@@ -199,7 +201,8 @@ def main():
 
     # Data
     train_loader, val_loader, test_loader, train_ds = get_dataloaders(
-        Path(args.data), batch_size=args.batch_size, return_train_ds=True
+        Path(args.data), batch_size=args.batch_size, return_train_ds=True,
+        augment_paths=args.augment,
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")
@@ -247,7 +250,6 @@ def main():
         pct_start=warmup_steps / total_steps, anneal_strategy="cos",
     )
 
-    # TensorBoard
     writer = SummaryWriter(log_dir=str(config.LOGS_DIR / time.strftime("%Y%m%d-%H%M%S")))
     writer.add_text("config", f"model={config.PRETRAINED_MODEL}, batch={config.BATCH_SIZE}, lr={config.LEARNING_RATE}, epochs={args.epochs}")
 

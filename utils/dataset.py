@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
@@ -83,10 +83,12 @@ class ESGDataset(Dataset):
         self.texts: List[str] = []
         self.labels: List[Dict[str, int]] = []
 
+        self.samples: List[dict] = []
         for s in samples:
             text = normalise_field(s.get(config.TEXT_FIELD, ""))
             if not text:
                 continue
+            self.samples.append(s)
             self.texts.append(text)
             self.labels.append(encode_labels(s))
 
@@ -123,9 +125,13 @@ def get_dataloaders(
     test_ratio: float = config.TEST_RATIO,
     seed: int = config.SEED,
     return_train_ds: bool = False,
+    augment_paths: Optional[List[Path]] = None,
 ):
-    """Return (train_loader, val_loader, test_loader[, train_ds])."""
+    """Return (train_loader, val_loader, test_loader[, train_ds]).
 
+    augment_paths: list of JSON files whose samples are appended to train only,
+                   keeping val/test clean for unbiased evaluation.
+    """
     tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
     dataset = ESGDataset(samples, tokenizer)
@@ -157,13 +163,25 @@ def get_dataloaders(
             train_idx, test_size=val_ratio_adjusted, random_state=seed
         )
 
-    train_ds = Subset(dataset, train_idx)
-    val_ds   = Subset(dataset, val_idx)
-    test_ds  = Subset(dataset, test_idx)
+    # Extract raw sample lists per split so we can append augmented data to train only
+    train_samples = [dataset.samples[i] for i in train_idx]
+    val_samples   = [dataset.samples[i] for i in val_idx]
+    test_samples  = [dataset.samples[i] for i in test_idx]
+
+    if augment_paths:
+        for aug_path in augment_paths:
+            aug = load_raw_samples(Path(aug_path), max_samples=100_000)
+            train_samples.extend(aug)
+        print(f"Augmented train size: {len(train_samples)} "
+              f"(original {len(train_idx)} + augmented {len(train_samples) - len(train_idx)})")
+
+    train_ds = ESGDataset(train_samples, tokenizer)
+    val_ds   = ESGDataset(val_samples,   tokenizer)
+    test_ds  = ESGDataset(test_samples,  tokenizer)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=batch_size)
-    test_loader = DataLoader(test_ds, batch_size=batch_size)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size)
 
     if return_train_ds:
         return train_loader, val_loader, test_loader, train_ds
