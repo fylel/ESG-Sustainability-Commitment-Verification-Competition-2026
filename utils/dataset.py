@@ -118,44 +118,6 @@ class ESGDataset(Dataset):
 # DataLoader factory
 # ──────────────────────────────────────────────────────────────────────
 
-def _split_aug_samples(
-    aug_all: List[dict],
-    val_ratio: float,
-    test_ratio: float,
-    seed: int,
-) -> Tuple[List[dict], List[dict], List[dict]]:
-    """Split a list of augmented raw samples into train / val / test."""
-    valid = [s for s in aug_all if normalise_field(s.get(config.TEXT_FIELD, ""))]
-    if not valid:
-        return [], [], []
-
-    strat_keys = [
-        "_".join(str(encode_labels(s).get(t, config.IGNORE_INDEX)) for t in config.TASK_NAMES)
-        for s in valid
-    ]
-    idx = np.arange(len(valid))
-
-    try:
-        tr_idx, te_idx = train_test_split(
-            idx, test_size=test_ratio, random_state=seed, stratify=strat_keys
-        )
-        val_adj = val_ratio / (1 - test_ratio)
-        tr_strat = [strat_keys[i] for i in tr_idx]
-        tr_idx, va_idx = train_test_split(
-            tr_idx, test_size=val_adj, random_state=seed, stratify=tr_strat
-        )
-    except ValueError:
-        tr_idx, te_idx = train_test_split(idx, test_size=test_ratio, random_state=seed)
-        val_adj = val_ratio / (1 - test_ratio)
-        tr_idx, va_idx = train_test_split(tr_idx, test_size=val_adj, random_state=seed)
-
-    return (
-        [valid[i] for i in tr_idx],
-        [valid[i] for i in va_idx],
-        [valid[i] for i in te_idx],
-    )
-
-
 def get_dataloaders(
     data_path: Path,
     batch_size: int = config.BATCH_SIZE,
@@ -165,16 +127,20 @@ def get_dataloaders(
     return_train_ds: bool = False,
     augment_paths: Optional[List[Path]] = None,
 ):
-    """Return (train_loader, val_loader, test_loader, aug_val_loader, aug_test_loader[, train_ds]).
+    """Return (train_loader, val_loader, test_loader[, train_ds]).
 
-    augment_paths: each file is split with the same val/test ratios as the original data.
-      - augmented train portion  → merged into train
-      - augmented val/test portions → separate loaders for hard-case tracking
-    Early stopping uses original val_loader only (unbiased).
-    aug_val_loader / aug_test_loader are None when no augment_paths provided.
+    augment_paths: augmented samples are merged with original data before splitting,
+                   so augmented samples can appear in train/val/test proportionally.
     """
     tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
+
+    if augment_paths:
+        for aug_path in augment_paths:
+            aug = load_raw_samples(Path(aug_path), max_samples=100_000)
+            samples.extend(aug)
+        print(f"Total samples after augmentation: {len(samples)}")
+
     dataset = ESGDataset(samples, tokenizer)
 
     # stratify key: combine all task labels into one string per sample
@@ -208,34 +174,14 @@ def get_dataloaders(
     val_samples   = [dataset.samples[i] for i in val_idx]
     test_samples  = [dataset.samples[i] for i in test_idx]
 
-    aug_val_samples:  List[dict] = []
-    aug_test_samples: List[dict] = []
+    train_ds = ESGDataset(train_samples, tokenizer)
+    val_ds   = ESGDataset(val_samples,   tokenizer)
+    test_ds  = ESGDataset(test_samples,  tokenizer)
 
-    if augment_paths:
-        orig_train_size = len(train_samples)
-        for aug_path in augment_paths:
-            aug_all = load_raw_samples(Path(aug_path), max_samples=100_000)
-            a_train, a_val, a_test = _split_aug_samples(aug_all, val_ratio, test_ratio, seed)
-            train_samples.extend(a_train)
-            aug_val_samples.extend(a_val)
-            aug_test_samples.extend(a_test)
-        print(
-            f"Augmented — train: +{len(train_samples) - orig_train_size}  "
-            f"aug-val: {len(aug_val_samples)}  aug-test: {len(aug_test_samples)}"
-        )
-
-    train_ds    = ESGDataset(train_samples,    tokenizer)
-    val_ds      = ESGDataset(val_samples,      tokenizer)
-    test_ds     = ESGDataset(test_samples,     tokenizer)
-    aug_val_ds  = ESGDataset(aug_val_samples,  tokenizer) if aug_val_samples  else None
-    aug_test_ds = ESGDataset(aug_test_samples, tokenizer) if aug_test_samples else None
-
-    train_loader    = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    val_loader      = DataLoader(val_ds,   batch_size=batch_size)
-    test_loader     = DataLoader(test_ds,  batch_size=batch_size)
-    aug_val_loader  = DataLoader(aug_val_ds,  batch_size=batch_size) if aug_val_ds  else None
-    aug_test_loader = DataLoader(aug_test_ds, batch_size=batch_size) if aug_test_ds else None
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size)
 
     if return_train_ds:
-        return train_loader, val_loader, test_loader, aug_val_loader, aug_test_loader, train_ds
-    return train_loader, val_loader, test_loader, aug_val_loader, aug_test_loader
+        return train_loader, val_loader, test_loader, train_ds
+    return train_loader, val_loader, test_loader
