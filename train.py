@@ -200,12 +200,14 @@ def main():
     print(f"Dropout: {config.CLASSIFIER_DROPOUT}  |  WeightDecay: {config.WEIGHT_DECAY}  |  MaxLen: {config.MAX_SEQ_LEN}")
 
     # Data
-    train_loader, val_loader, test_loader, train_ds = get_dataloaders(
+    train_loader, val_loader, test_loader, aug_val_loader, aug_test_loader, train_ds = get_dataloaders(
         Path(args.data), batch_size=args.batch_size, return_train_ds=True,
         augment_paths=args.augment,
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")
+    if aug_val_loader:
+        print(f"Aug-Val: {len(aug_val_loader.dataset)}  Aug-Test: {len(aug_test_loader.dataset)}")
 
     # ── Optuna tuning mode ────────────────────────────────────────────
     if args.tune:
@@ -280,6 +282,12 @@ def main():
         print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val score: {val_score:.5f}")
         print_metrics(val_metrics)
 
+        if aug_val_loader:
+            _, aug_val_metrics, aug_val_preds, aug_val_golds = evaluate(model, aug_val_loader, device, criteria)
+            aug_val_score = evaluate_detailed(aug_val_preds, aug_val_golds)["final_weighted_score"]
+            print(f"[Aug-Val] score: {aug_val_score:.5f}")
+            print_metrics(aug_val_metrics)
+
         # Save best / early stopping (based on val loss)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -304,6 +312,13 @@ def main():
     test_results = evaluate_detailed(test_preds, test_golds)
     print(f"Test loss: {test_loss:.4f}  |  Test score: {test_results['final_weighted_score']:.5f}")
     print_metrics(test_metrics)
+
+    if aug_test_loader:
+        print("\n" + "=" * 20 + "  Aug Test Set  " + "=" * 20)
+        aug_test_loss, aug_test_metrics, aug_test_preds, aug_test_golds = evaluate(model, aug_test_loader, device, criteria)
+        aug_test_results = evaluate_detailed(aug_test_preds, aug_test_golds)
+        print(f"Aug-Test loss: {aug_test_loss:.4f}  |  Aug-Test score: {aug_test_results['final_weighted_score']:.5f}")
+        print_metrics(aug_test_metrics)
 
 
 if __name__ == "__main__":
