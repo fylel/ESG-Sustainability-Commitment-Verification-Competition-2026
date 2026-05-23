@@ -142,7 +142,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    _, _, test_loader = get_dataloaders(Path(args.data), batch_size=args.batch_size)
+    _, _, test_loader, _, _ = get_dataloaders(Path(args.data), batch_size=args.batch_size)
     print(f"Test samples: {len(test_loader.dataset)}")
 
     model = ESGMultiTaskModel().to(device)
