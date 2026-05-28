@@ -137,12 +137,16 @@ def main():
     parser.add_argument("--data", type=str, required=True)
     parser.add_argument("--checkpoint", type=str, default="/content/best.pt")
     parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
+    parser.add_argument("--augment", nargs="+", default=None, metavar="FILE",
+                        help="Same augmented files used during training (must match train.py)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    _, _, test_loader = get_dataloaders(Path(args.data), batch_size=args.batch_size)
+    _, _, test_loader = get_dataloaders(
+        Path(args.data), batch_size=args.batch_size, augment_paths=args.augment
+    )
     print(f"Test samples: {len(test_loader.dataset)}")
 
     model = ESGMultiTaskModel().to(device)
