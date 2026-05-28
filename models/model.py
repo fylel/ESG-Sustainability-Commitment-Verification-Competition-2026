@@ -54,6 +54,18 @@ class SpanHead(nn.Module):
         return out[..., 0], out[..., 1]  # start_logits, end_logits each (B, seq_len)
 
 
+class KeywordHead(nn.Module):
+    """Binary token classifier: keyword (1) vs non-keyword (0)."""
+
+    def __init__(self, hidden_dim: int, dropout: float):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.linear = nn.Linear(hidden_dim, 2)
+
+    def forward(self, sequence_output: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.dropout(sequence_output))  # (B, seq_len, 2)
+
+
 class ESGMultiTaskModel(nn.Module):
     """
     Shared BERT encoder + one TaskHead per task.
@@ -80,6 +92,9 @@ class ESGMultiTaskModel(nn.Module):
             self.promise_span_head = SpanHead(hidden_dim, dropout)
             self.evidence_span_head = SpanHead(hidden_dim, dropout)
 
+        if config.USE_KEYWORD_AUX:
+            self.keyword_head = KeywordHead(hidden_dim, dropout)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -99,5 +114,8 @@ class ESGMultiTaskModel(nn.Module):
                 self.promise_span_head(sequence_output)
             logits["evidence_start"], logits["evidence_end"] = \
                 self.evidence_span_head(sequence_output)
+
+        if config.USE_KEYWORD_AUX:
+            logits["keyword"] = self.keyword_head(sequence_output)  # (B, seq_len, 2)
 
         return logits

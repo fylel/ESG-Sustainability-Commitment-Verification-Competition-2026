@@ -101,3 +101,6 @@ EVAL_WEIGHTS = {
 # At test time, span heads are ignored; only the 4 task heads are used.
 USE_SPAN_AUX = True
 SPAN_LOSS_WEIGHT = 0.15
+
+USE_KEYWORD_AUX = True
+KEYWORD_LOSS_WEIGHT = 0.10

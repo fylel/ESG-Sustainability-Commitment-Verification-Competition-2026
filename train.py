@@ -57,6 +57,8 @@ def build_criteria(train_ds, device) -> dict:
         )
     if config.USE_SPAN_AUX:
         criteria["__span__"] = nn.CrossEntropyLoss(ignore_index=-1).to(device)
+    if config.USE_KEYWORD_AUX:
+        criteria["__keyword__"] = nn.CrossEntropyLoss(ignore_index=-1).to(device)
     return criteria
 
 
@@ -65,12 +67,13 @@ def combined_loss(
     labels: torch.Tensor,
     criteria: dict,
     span_labels: torch.Tensor = None,
+    keyword_labels: torch.Tensor = None,
 ) -> torch.Tensor:
     """
-    logits      : {task_name: (B, C), optionally span logits}
-    labels      : (B, num_tasks)  columns in TASK_NAMES order
-    span_labels : (B, 4) [promise_start, promise_end, evidence_start, evidence_end]
-                  -1 entries are ignored by the span criterion
+    logits         : {task_name: (B, C), optionally span/keyword logits}
+    labels         : (B, num_tasks)  columns in TASK_NAMES order
+    span_labels    : (B, 4) [promise_start, promise_end, evidence_start, evidence_end]
+    keyword_labels : (B, seq_len)  1=keyword, 0=non-keyword, -1=ignore
     """
     total = torch.tensor(0.0, device=labels.device)
     for i, task in enumerate(config.TASK_NAMES):
@@ -88,6 +91,15 @@ def combined_loss(
             span_ce(logits["evidence_end"],   span_labels[:, 3])
         ) / 4
         total = total + config.SPAN_LOSS_WEIGHT * span_loss
+
+    if (config.USE_KEYWORD_AUX and keyword_labels is not None
+            and "__keyword__" in criteria):
+        kw_logits = logits["keyword"]           # (B, seq_len, 2)
+        B, S, C = kw_logits.shape
+        kw_loss = criteria["__keyword__"](
+            kw_logits.view(B * S, C), keyword_labels.view(B * S)
+        )
+        total = total + config.KEYWORD_LOSS_WEIGHT * kw_loss
 
     return total
 
@@ -142,15 +154,16 @@ def train_one_epoch(model, loader, device, optimizer, criteria):
     running_loss = 0.0
     n_samples = 0
 
-    for input_ids, attention_mask, labels, span_labels in tqdm(loader, desc="Train"):
+    for input_ids, attention_mask, labels, span_labels, keyword_labels in tqdm(loader, desc="Train"):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         labels = labels.to(device)
         span_labels = span_labels.to(device)
+        keyword_labels = keyword_labels.to(device)
 
         optimizer.zero_grad()
         logits = model(input_ids, attention_mask)
-        loss = combined_loss(logits, labels, criteria, span_labels)
+        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -170,14 +183,15 @@ def evaluate(model, loader, device, criteria):
     all_preds = {t: [] for t in config.TASK_NAMES}
     all_golds = {t: [] for t in config.TASK_NAMES}
 
-    for input_ids, attention_mask, labels, span_labels in loader:
+    for input_ids, attention_mask, labels, span_labels, keyword_labels in loader:
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         labels = labels.to(device)
         span_labels = span_labels.to(device)
+        keyword_labels = keyword_labels.to(device)
 
         logits = model(input_ids, attention_mask)
-        loss = combined_loss(logits, labels, criteria, span_labels)
+        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels)
 
         running_loss += loss.item() * input_ids.size(0)
         n_samples += input_ids.size(0)

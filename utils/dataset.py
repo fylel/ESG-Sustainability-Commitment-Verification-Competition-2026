@@ -63,6 +63,26 @@ def encode_labels(sample: dict) -> Dict[str, int]:
 # PyTorch Dataset
 # ──────────────────────────────────────────────────────────────────────
 
+_STOP_CHARS = frozenset(
+    "的了在是和与或等对为以从到上下中内外于其该此这那个各每某所也都就才又还更最着过吗啊呢吧"
+    "，。！？、；：\"""''（）【】《》…—·～ \t\n"
+)
+
+
+def _is_meaningful_token(token_text: str) -> bool:
+    """Return True if a token carries semantic weight (not a stop word / punctuation)."""
+    t = token_text.strip()
+    if not t:
+        return False
+    if t.isdigit():  # keep years like 2030
+        return True
+    if len(t) == 1 and t in _STOP_CHARS:
+        return False
+    if all(c in _STOP_CHARS for c in t):
+        return False
+    return True
+
+
 def _find_span_tokens(text: str, span: str, offsets, max_seq_len: int):
     """Return (token_start, token_end) of span within tokenized text, or (-1, -1).
 
@@ -137,7 +157,7 @@ class ESGDataset(Dataset):
             padding="max_length",
             truncation=True,
             return_tensors="pt",
-            return_offsets_mapping=config.USE_SPAN_AUX,
+            return_offsets_mapping=config.USE_SPAN_AUX or config.USE_KEYWORD_AUX,
         )
         input_ids = enc["input_ids"].squeeze(0)            # (seq_len,)
         attention_mask = enc["attention_mask"].squeeze(0)  # (seq_len,)
@@ -146,8 +166,10 @@ class ESGDataset(Dataset):
             [self.labels[idx][t] for t in config.TASK_NAMES], dtype=torch.long
         )
 
-        if config.USE_SPAN_AUX and "offset_mapping" in enc:
-            offsets = enc["offset_mapping"].squeeze(0).tolist()
+        offsets = enc["offset_mapping"].squeeze(0).tolist() if "offset_mapping" in enc else None
+
+        # Span labels
+        if config.USE_SPAN_AUX and offsets is not None:
             ps, pe = _find_span_tokens(
                 self.texts[idx], self.promise_strings[idx], offsets, self.max_seq_len
             )
@@ -156,9 +178,33 @@ class ESGDataset(Dataset):
             )
         else:
             ps, pe, es, ee = -1, -1, -1, -1
-
         span_labels = torch.tensor([ps, pe, es, ee], dtype=torch.long)
-        return input_ids, attention_mask, label_tensor, span_labels
+
+        # Keyword labels
+        if config.USE_KEYWORD_AUX and offsets is not None:
+            keyword_char_set: set = set()
+            for span_str in (self.promise_strings[idx], self.evidence_strings[idx]):
+                if span_str:
+                    cs = self.texts[idx].find(span_str)
+                    if cs != -1:
+                        keyword_char_set.update(range(cs, cs + len(span_str)))
+
+            if not keyword_char_set:
+                keyword_labels = torch.full((self.max_seq_len,), -1, dtype=torch.long)
+            else:
+                kw = []
+                for s, e in offsets:
+                    if e <= s:
+                        kw.append(-1)
+                    elif any(ci in keyword_char_set for ci in range(s, e)):
+                        kw.append(1 if _is_meaningful_token(self.texts[idx][s:e]) else 0)
+                    else:
+                        kw.append(0)
+                keyword_labels = torch.tensor(kw, dtype=torch.long)
+        else:
+            keyword_labels = torch.full((self.max_seq_len,), -1, dtype=torch.long)
+
+        return input_ids, attention_mask, label_tensor, span_labels, keyword_labels
 
 
 # ──────────────────────────────────────────────────────────────────────
