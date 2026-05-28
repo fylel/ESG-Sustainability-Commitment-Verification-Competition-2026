@@ -291,7 +291,7 @@ def main():
     writer.add_text("config", f"model={config.PRETRAINED_MODEL}, batch={config.BATCH_SIZE}, lr={config.LEARNING_RATE}, epochs={args.epochs}")
 
     # Training loop
-    best_val_loss = float("inf")
+    best_val_score = 0.0
     save_path = Path("/content/best.pt")
     patience = config.EARLY_STOPPING_PATIENCE
     no_improve = 0
@@ -317,12 +317,12 @@ def main():
         print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val score: {val_score:.5f}")
         print_metrics(val_metrics)
 
-        # Save best / early stopping (based on val loss)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # Save best / early stopping (based on val score = competition metric)
+        if val_score > best_val_score:
+            best_val_score = val_score
             no_improve = 0
             torch.save(model.state_dict(), save_path)
-            print(f"✓ Model saved → {save_path}")
+            print(f"✓ Model saved → {save_path}  (score={val_score:.5f})")
         else:
             no_improve += 1
             if no_improve >= patience:
