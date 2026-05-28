@@ -155,7 +155,7 @@ def main():
     all_golds = {t: [] for t in config.TASK_NAMES}
 
     with torch.no_grad():
-        for input_ids, attention_mask, labels in test_loader:
+        for input_ids, attention_mask, labels, _span in test_loader:
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
             logits = model(input_ids, attention_mask)

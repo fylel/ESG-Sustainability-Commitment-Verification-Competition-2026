@@ -63,12 +63,43 @@ def encode_labels(sample: dict) -> Dict[str, int]:
 # PyTorch Dataset
 # ──────────────────────────────────────────────────────────────────────
 
+def _find_span_tokens(text: str, span: str, offsets, max_seq_len: int):
+    """Return (token_start, token_end) of span within tokenized text, or (-1, -1).
+
+    Uses offset_mapping from HuggingFace fast tokenizer to map character
+    positions to token indices. Special/padding tokens have offset (0, 0)
+    and are skipped via the e > s check.
+    """
+    if not span:
+        return -1, -1
+    char_start = text.find(span)
+    if char_start == -1:
+        return -1, -1
+    char_end = char_start + len(span)  # exclusive
+
+    tok_start = tok_end = -1
+    for i, (s, e) in enumerate(offsets):
+        if e <= s:  # special or padding token: offset is (0, 0)
+            continue
+        if s < char_end and e > char_start:  # token overlaps with span
+            if tok_start == -1:
+                tok_start = i
+            tok_end = i
+
+    if tok_start == -1 or tok_end == -1:
+        return -1, -1
+    return tok_start, tok_end
+
+
 class ESGDataset(Dataset):
     """
     Each item returns:
         input_ids      – (max_seq_len,)
         attention_mask – (max_seq_len,)
-        labels         – dict {task_name: int}   (as a stacked tensor later)
+        labels         – stacked int tensor (num_tasks,)
+        span_labels    – int tensor [promise_start, promise_end,
+                                     evidence_start, evidence_end]
+                         -1 means not found / USE_SPAN_AUX is False
     """
 
     def __init__(
@@ -82,6 +113,8 @@ class ESGDataset(Dataset):
 
         self.texts: List[str] = []
         self.labels: List[Dict[str, int]] = []
+        self.promise_strings: List[str] = []
+        self.evidence_strings: List[str] = []
 
         self.samples: List[dict] = []
         for s in samples:
@@ -91,6 +124,8 @@ class ESGDataset(Dataset):
             self.samples.append(s)
             self.texts.append(text)
             self.labels.append(encode_labels(s))
+            self.promise_strings.append(normalise_field(s.get("promise_string", "")))
+            self.evidence_strings.append(normalise_field(s.get("evidence_string", "")))
 
     def __len__(self) -> int:
         return len(self.texts)
@@ -102,16 +137,28 @@ class ESGDataset(Dataset):
             padding="max_length",
             truncation=True,
             return_tensors="pt",
+            return_offsets_mapping=config.USE_SPAN_AUX,
         )
         input_ids = enc["input_ids"].squeeze(0)            # (seq_len,)
         attention_mask = enc["attention_mask"].squeeze(0)  # (seq_len,)
 
-        label_dict = self.labels[idx]
-        # stack in canonical task order
         label_tensor = torch.tensor(
-            [label_dict[t] for t in config.TASK_NAMES], dtype=torch.long
+            [self.labels[idx][t] for t in config.TASK_NAMES], dtype=torch.long
         )
-        return input_ids, attention_mask, label_tensor
+
+        if config.USE_SPAN_AUX and "offset_mapping" in enc:
+            offsets = enc["offset_mapping"].squeeze(0).tolist()
+            ps, pe = _find_span_tokens(
+                self.texts[idx], self.promise_strings[idx], offsets, self.max_seq_len
+            )
+            es, ee = _find_span_tokens(
+                self.texts[idx], self.evidence_strings[idx], offsets, self.max_seq_len
+            )
+        else:
+            ps, pe, es, ee = -1, -1, -1, -1
+
+        span_labels = torch.tensor([ps, pe, es, ee], dtype=torch.long)
+        return input_ids, attention_mask, label_tensor, span_labels
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -95,3 +95,9 @@ EVAL_WEIGHTS = {
     "evidence": 0.30,       # evidence_status
     "clarity": 0.35,        # evidence_quality
 }
+
+# ─── Span Extraction Auxiliary Task ───────────────────────────────────
+# Trains BERT to locate promise_string / evidence_string in raw data.
+# At test time, span heads are ignored; only the 4 task heads are used.
+USE_SPAN_AUX = True
+SPAN_LOSS_WEIGHT = 0.15

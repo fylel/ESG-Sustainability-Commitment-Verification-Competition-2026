@@ -36,6 +36,24 @@ class TaskHead(nn.Module):
         return self.classifier(self.dropout(cls_hidden))
 
 
+class SpanHead(nn.Module):
+    """Predicts start/end token positions of a text span.
+
+    Operates on the full token sequence (not just [CLS]) so the model
+    learns to locate specific spans within the input text.
+    """
+
+    def __init__(self, hidden_dim: int, dropout: float):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.linear = nn.Linear(hidden_dim, 2)  # column 0 = start, 1 = end
+
+    def forward(self, sequence_output: torch.Tensor):
+        # sequence_output: (B, seq_len, hidden_dim)
+        out = self.linear(self.dropout(sequence_output))  # (B, seq_len, 2)
+        return out[..., 0], out[..., 1]  # start_logits, end_logits each (B, seq_len)
+
+
 class ESGMultiTaskModel(nn.Module):
     """
     Shared BERT encoder + one TaskHead per task.
@@ -58,16 +76,28 @@ class ESGMultiTaskModel(nn.Module):
             for task, n_cls in config.NUM_CLASSES.items()
         })
 
+        if config.USE_SPAN_AUX:
+            self.promise_span_head = SpanHead(hidden_dim, dropout)
+            self.evidence_span_head = SpanHead(hidden_dim, dropout)
+
     def forward(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
     ) -> dict:
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        cls_hidden = outputs.last_hidden_state[:, 0, :].float()  # [CLS] vector
+        sequence_output = outputs.last_hidden_state.float()  # (B, seq_len, hidden)
+        cls_hidden = sequence_output[:, 0, :]                # [CLS] vector
 
         logits = {
             task: head(cls_hidden)
             for task, head in self.heads.items()
         }
+
+        if config.USE_SPAN_AUX:
+            logits["promise_start"], logits["promise_end"] = \
+                self.promise_span_head(sequence_output)
+            logits["evidence_start"], logits["evidence_end"] = \
+                self.evidence_span_head(sequence_output)
+
         return logits
