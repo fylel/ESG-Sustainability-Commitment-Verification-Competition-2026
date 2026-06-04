@@ -82,17 +82,14 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 
 ---
 
-## 最新成績（加入 span aux 後）
+## 成績歷史
 
-| Task | F1-macro |
-|------|---------|
-| commitment | 0.837 |
-| evidence | 0.865 |
-| clarity | 0.746 |
-| timeline | 0.478 |
-| **Total** | **0.759** |
-
-> Baseline（span aux 前）：commitment=0.64, evidence=0.72, clarity=0.73, timeline=0.38, total≈0.68
+| 版本 | commitment | evidence | clarity | timeline | Total |
+|------|-----------|---------|---------|---------|-------|
+| Baseline | 0.64 | 0.72 | 0.73 | 0.38 | ~0.68 |
+| + span aux | 0.837 | 0.865 | 0.746 | 0.478 | 0.759 |
+| + val_score early stopping（現在最佳） | **0.880** | 0.849 | 0.744 | **0.533** | **0.771** |
+| + keyword aux（退步，已停用） | 0.813 | 0.851 | 0.757 | 0.301 | 0.728 |
 
 ---
 
@@ -142,8 +139,11 @@ shutil.copy('/content/best.pt',
 
 ---
 
-## 已知問題 / 待觀察
+## 已知問題 / 待處理
 
-- `within_2_years` 類別只有 13 筆，timeline F1 仍受限
-- keyword aux 是本次新增，尚未跑過完整訓練，效果待觀察
-- 若下次要做的事：跑完訓練後比較 keyword aux 加入前後的 val score
+- `within_2_years` 類別只有 13 筆，timeline F1 仍受限（目前 0.533）
+- keyword aux 實作完成但會造成退步（timeline 從 0.533 跌到 0.301），原因待查，目前停用（USE_KEYWORD_AUX = False）
+- 下次方向選項：
+  1. 調低 KEYWORD_LOSS_WEIGHT（0.10 → 0.05）重試 keyword aux
+  2. 針對 within_2_years 追加更多增強資料
+  3. 若 timeline 仍卡關，考慮 RAG + GPT 處理 timeline 子任務
