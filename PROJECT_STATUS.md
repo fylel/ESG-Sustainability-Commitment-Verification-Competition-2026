@@ -107,6 +107,7 @@ from google.colab import drive
 drive.mount('/content/drive')
 
 # 2. Clone
+import os; os.chdir('/content')
 !rm -rf /content/translation-transformer
 !git clone https://github.com/fylel/ESG-Sustainability-Commitment-Verification-Competition-2026.git /content/translation-transformer
 
