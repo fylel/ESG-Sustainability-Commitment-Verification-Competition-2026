@@ -174,10 +174,13 @@ for f in [
             data/raw/aug_quality_misleading.json \
             data/raw/aug_quality_notclear.json
 
-# 7. 存模型
+# 7. 存模型 + 圖表
 from datetime import datetime; import shutil
+ts = datetime.now().strftime("%m%d_%H%M")
 shutil.copy('/content/best.pt',
-            f'/content/drive/MyDrive/esg_data/best_{datetime.now().strftime("%m%d_%H%M")}.pt')
+            f'/content/drive/MyDrive/esg_data/best_{ts}.pt')
+shutil.copy('/content/translation-transformer/f1_scores.png',
+            f'/content/drive/MyDrive/esg_data/f1_scores_{ts}.png')
 ```
 
 ---
