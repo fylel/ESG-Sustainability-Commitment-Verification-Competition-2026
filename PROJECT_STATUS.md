@@ -141,11 +141,20 @@ shutil.copy('/content/best.pt',
 
 ---
 
+## 當前弱點分析（基於 0.842 成績）
+
+| 弱點 | 影響程度 | 說明 |
+|------|---------|------|
+| Clarity「Not Clear」F1=0.45 | 最高（權重 0.35） | 和 Clear 邊界模糊，樣本只有 22 筆 |
+| Timeline「between_2_and_5_years」F1=0.63 | 中 | recall=0.55，常被誤判為 more_than_5_years |
+| within_2_years F1=1.00（虛假） | 中 | 幾乎全是增強資料，真實資料可能崩掉 |
+| Commitment「No」F1=0.81 | 低 | 42 vs 190 類別不平衡 |
+
 ## 已知問題 / 待處理
 
-- `within_2_years` 類別只有 13 筆，timeline F1 仍受限（目前 0.533）
 - keyword aux 實作完成但會造成退步（timeline 從 0.533 跌到 0.301），原因待查，目前停用（USE_KEYWORD_AUX = False）
 - 下次方向選項：
-  1. 調低 KEYWORD_LOSS_WEIGHT（0.10 → 0.05）重試 keyword aux
-  2. 針對 within_2_years 追加更多增強資料
-  3. 若 timeline 仍卡關，考慮 RAG + GPT 處理 timeline 子任務
+  1. 針對「Not Clear」補增強資料（最優先，權重最高）
+  2. 針對「between_2_and_5_years」補增強資料或調整 loss 權重
+  3. 調低 KEYWORD_LOSS_WEIGHT（0.10 → 0.05）重試 keyword aux
+  4. 若 timeline 仍卡關，考慮 RAG + GPT 處理 timeline 子任務
