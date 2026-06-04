@@ -99,22 +99,21 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 
 ### 現在最佳成績視覺化（Total = 0.842）
 
-```
-                     0.0       0.5      0.782     1.0
-                      │         │         │         │
-commitment  (w=0.20)  ████████████████████████████░  0.884
-evidence    (w=0.30)  ███████████████████████████████████████████████  0.906
-clarity     (w=0.35)  ████████████████████████████████░░░░░░  0.782 ⚠
-timeline    (w=0.15)  ██████████████████████████████████████  0.794
-                      │                             │
-                   0.0                            0.842 ← weighted score
+```mermaid
+xychart-beta
+    title "Best Model F1 by Task (Total = 0.842)"
+    x-axis ["commitment (w=0.20)", "evidence (w=0.30)", "clarity (w=0.35)", "timeline (w=0.15)"]
+    y-axis "Macro F1" 0 --> 1
+    bar [0.884, 0.906, 0.782, 0.794]
+    line [0.842, 0.842, 0.842, 0.842]
 ```
 
-**各 clarity 子類（最弱點）**
-```
-Clear       ████████████████████████████████████████  0.89
-Not Clear   ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░  0.45 ← 最需改善
-Misleading  ████████████████████████░░░░░░░░░░░░░░░  0.62
+```mermaid
+xychart-beta
+    title "Clarity Sub-class F1 (most critical, w=0.35)"
+    x-axis ["Clear", "Not Clear ⚠", "Misleading"]
+    y-axis "F1" 0 --> 1
+    bar [0.890, 0.450, 0.620]
 ```
 
 ---
