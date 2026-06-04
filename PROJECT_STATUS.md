@@ -72,16 +72,16 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 - 主資料：`data/raw/vpesg_4k_train_1000.json`（1000 筆）
 - 增強資料（Google Drive symlink，放於 `esg_data/`）：
 
-| 檔名 | 筆數 | 增強目標 |
-|------|------|---------|
-| `aug_timeline_within2.json` | 102 | timeline = within_2_years |
-| `aug_timeline_between_clear.json` | 80 | timeline = between_2_5, Clear |
-| `aug_timeline_between_mixed.json` | 80 | timeline = between_2_5, Not Clear/Misleading |
-| `aug_timeline_morethan.json` | 80 | timeline = more_than_5_years |
-| `aug_commitment_no.json` | 100 | promise_status = No |
-| `aug_evidence_no.json` | 100 | evidence_status = No |
-| `aug_quality_misleading.json` | 100 | evidence_quality = Misleading（timeline 均勻）|
-| `aug_quality_notclear.json` | 100 | evidence_quality = Not Clear（最高優先，weight=0.35）|
+| 檔名 | 筆數 | 增強目標 | 內容說明 |
+|------|------|---------|---------|
+| `aug_timeline_within2.json` | 102 | timeline = within_2_years | 2025–2026 年承諾；原始資料只有 13 筆，嚴重不足 |
+| `aug_timeline_between_clear.json` | 80 | timeline = between_2_5, Clear | 2027–2029 年承諾，有具體數字與明確執行進度 |
+| `aug_timeline_between_mixed.json` | 80 | timeline = between_2_5, Not Clear/Misleading | 2027–2029 年承諾；Not Clear 26 筆 + Misleading 18 筆，補邊界樣本 |
+| `aug_timeline_morethan.json` | 80 | timeline = more_than_5_years | 2030 年後長期目標 |
+| `aug_commitment_no.json` | 100 | promise_status = No | 沒有做出承諾的 ESG 段落；原始資料 186 筆偏少 |
+| `aug_evidence_no.json` | 100 | evidence_status = No | 有承諾但無佐證；timeline 四類均勻分布（各 25 筆）|
+| `aug_quality_misleading.json` | 100 | evidence_quality = Misleading | 表面像承諾但實際誤導（舊版 timeline 全是 already 已修正）；timeline 四類各 25 筆 |
+| `aug_quality_notclear.json` | 100 | evidence_quality = Not Clear | 承諾模糊無量化目標；timeline 分布對齊真實資料（between_2_5=45, already=28, more_than_5=27）|
 
 增強資料由 AI 生成，merge 進原始資料後一起切分 train/val/test。
 
