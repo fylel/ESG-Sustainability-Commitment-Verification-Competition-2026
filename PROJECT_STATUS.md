@@ -132,7 +132,7 @@ for f in [
 # 4. 安裝套件
 !pip install transformers torch scikit-learn tensorboard tqdm matplotlib optuna -q
 
-# 5. 訓練
+# 5a. 全新訓練（第一次 or 資料有大幅變動）
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
   --augment data/raw/aug_timeline_within2.json \
@@ -144,6 +144,22 @@ for f in [
             data/raw/aug_quality_misleading.json \
             data/raw/aug_quality_notclear.json \
   --epochs 30
+
+# 5b. 繼續訓練（從現有 checkpoint 接續，用較低 LR）
+# 先把上次存的 .pt 複製到 /content/best.pt，再執行：
+%cd /content/translation-transformer
+!python train.py --data data/raw/vpesg_4k_train_1000.json \
+  --augment data/raw/aug_timeline_within2.json \
+            data/raw/aug_timeline_between_clear.json \
+            data/raw/aug_timeline_between_mixed.json \
+            data/raw/aug_timeline_morethan.json \
+            data/raw/aug_commitment_no.json \
+            data/raw/aug_evidence_no.json \
+            data/raw/aug_quality_misleading.json \
+            data/raw/aug_quality_notclear.json \
+  --resume /content/best.pt \
+  --lr 5e-6 \
+  --epochs 15
 
 # 6. 評估
 !python evaluate.py --data data/raw/vpesg_4k_train_1000.json \
