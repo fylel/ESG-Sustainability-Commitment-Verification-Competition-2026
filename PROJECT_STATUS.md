@@ -70,13 +70,18 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 ## 資料
 
 - 主資料：`data/raw/vpesg_4k_train_1000.json`（1000 筆）
-- 增強資料（Google Drive symlink）：
-  - `augmented_timeline.json`
-  - `augmented_commitment.json`
-  - `augmented_misleading.json`
-  - `augmented_evidence_no.json`
-  - `augmented_between.json`
-  - `augmented_morethan.json`
+- 增強資料（Google Drive symlink，放於 `esg_data/`）：
+
+| 檔名 | 筆數 | 增強目標 |
+|------|------|---------|
+| `aug_timeline_within2.json` | 102 | timeline = within_2_years |
+| `aug_timeline_between_clear.json` | 80 | timeline = between_2_5, Clear |
+| `aug_timeline_between_mixed.json` | 80 | timeline = between_2_5, Not Clear/Misleading |
+| `aug_timeline_morethan.json` | 80 | timeline = more_than_5_years |
+| `aug_commitment_no.json` | 100 | promise_status = No |
+| `aug_evidence_no.json` | 100 | evidence_status = No |
+| `aug_quality_misleading.json` | 100 | evidence_quality = Misleading（timeline 均勻）|
+| `aug_quality_notclear.json` | 100 | evidence_quality = Not Clear（最高優先，weight=0.35）|
 
 增強資料由 AI 生成，merge 進原始資料後一起切分 train/val/test。
 
@@ -110,10 +115,19 @@ import os
 dst_main = '/content/translation-transformer/data/raw/vpesg_4k_train_1000.json'
 if not os.path.lexists(dst_main):
     os.symlink('/content/drive/MyDrive/esg_data/vpesg_4k_train_1000.json', dst_main)
-for f in ['augmented_timeline.json','augmented_commitment.json','augmented_misleading.json',
-          'augmented_evidence_no.json','augmented_between.json','augmented_morethan.json']:
-    os.symlink(f'/content/drive/MyDrive/esg_data/{f}',
-               f'/content/translation-transformer/data/raw/{f}')
+for f in [
+    'aug_timeline_within2.json',
+    'aug_timeline_between_clear.json',
+    'aug_timeline_between_mixed.json',
+    'aug_timeline_morethan.json',
+    'aug_commitment_no.json',
+    'aug_evidence_no.json',
+    'aug_quality_misleading.json',
+    'aug_quality_notclear.json',
+]:
+    dst = f'/content/translation-transformer/data/raw/{f}'
+    if not os.path.lexists(dst):
+        os.symlink(f'/content/drive/MyDrive/esg_data/{f}', dst)
 
 # 4. 安裝套件
 !pip install transformers torch scikit-learn tensorboard tqdm matplotlib optuna -q
@@ -121,17 +135,27 @@ for f in ['augmented_timeline.json','augmented_commitment.json','augmented_misle
 # 5. 訓練
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
-  --augment data/raw/augmented_timeline.json data/raw/augmented_commitment.json \
-            data/raw/augmented_misleading.json data/raw/augmented_evidence_no.json \
-            data/raw/augmented_between.json data/raw/augmented_morethan.json \
-  --epochs 23
+  --augment data/raw/aug_timeline_within2.json \
+            data/raw/aug_timeline_between_clear.json \
+            data/raw/aug_timeline_between_mixed.json \
+            data/raw/aug_timeline_morethan.json \
+            data/raw/aug_commitment_no.json \
+            data/raw/aug_evidence_no.json \
+            data/raw/aug_quality_misleading.json \
+            data/raw/aug_quality_notclear.json \
+  --epochs 30
 
 # 6. 評估
 !python evaluate.py --data data/raw/vpesg_4k_train_1000.json \
   --checkpoint /content/best.pt \
-  --augment data/raw/augmented_timeline.json data/raw/augmented_commitment.json \
-            data/raw/augmented_misleading.json data/raw/augmented_evidence_no.json \
-            data/raw/augmented_between.json data/raw/augmented_morethan.json
+  --augment data/raw/aug_timeline_within2.json \
+            data/raw/aug_timeline_between_clear.json \
+            data/raw/aug_timeline_between_mixed.json \
+            data/raw/aug_timeline_morethan.json \
+            data/raw/aug_commitment_no.json \
+            data/raw/aug_evidence_no.json \
+            data/raw/aug_quality_misleading.json \
+            data/raw/aug_quality_notclear.json
 
 # 7. 存模型
 from datetime import datetime; import shutil
@@ -143,18 +167,18 @@ shutil.copy('/content/best.pt',
 
 ## 當前弱點分析（基於 0.842 成績）
 
-| 弱點 | 影響程度 | 說明 |
-|------|---------|------|
-| Clarity「Not Clear」F1=0.45 | 最高（權重 0.35） | 和 Clear 邊界模糊，樣本只有 22 筆 |
-| Timeline「between_2_and_5_years」F1=0.63 | 中 | recall=0.55，常被誤判為 more_than_5_years |
-| within_2_years F1=1.00（虛假） | 中 | 幾乎全是增強資料，真實資料可能崩掉 |
-| Commitment「No」F1=0.81 | 低 | 42 vs 190 類別不平衡 |
+| 弱點 | 影響程度 | 說明 | 處理狀態 |
+|------|---------|------|---------|
+| Clarity「Not Clear」F1=0.45 | 最高（權重 0.35） | 和 Clear 邊界模糊 | ✅ 已補 aug_quality_notclear.json（100 筆）|
+| Timeline「between_2_and_5_years」F1=0.63 | 中 | recall=0.55 | ✅ 已補 aug_timeline_between_mixed.json（80 筆 Not Clear/Misleading）|
+| Misleading 舊資料 timeline 全是 already | 高 | 假關聯 | ✅ 已替換 aug_quality_misleading.json（timeline 均勻）|
+| within_2_years F1=1.00（虛假） | 中 | 競賽真實資料可能崩 | 待觀察 |
+| Commitment「No」F1=0.81 | 低 | 類別不平衡 | 已有 aug_commitment_no.json |
 
 ## 已知問題 / 待處理
 
 - keyword aux 實作完成但會造成退步（timeline 從 0.533 跌到 0.301），原因待查，目前停用（USE_KEYWORD_AUX = False）
-- 下次方向選項：
-  1. 針對「Not Clear」補增強資料（最優先，權重最高）
-  2. 針對「between_2_and_5_years」補增強資料或調整 loss 權重
+- 下次方向：
+  1. 上傳新增強資料到 Google Drive，重新訓練（--epochs 30）
+  2. 若 clarity Not Clear 仍弱，考慮調高 clarity 的 TASK_LOSS_WEIGHTS（0.35 → 0.40）
   3. 調低 KEYWORD_LOSS_WEIGHT（0.10 → 0.05）重試 keyword aux
-  4. 若 timeline 仍卡關，考慮 RAG + GPT 處理 timeline 子任務
