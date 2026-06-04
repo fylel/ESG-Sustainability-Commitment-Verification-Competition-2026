@@ -181,7 +181,9 @@ for f in [
   --lr 5e-6 \
   --epochs 15
 
-# 6. 評估
+# 6. 評估 + 圖表
+%matplotlib inline
+%cd /content/translation-transformer
 !python evaluate.py --data data/raw/vpesg_4k_train_1000.json \
   --checkpoint /content/best.pt \
   --augment data/raw/aug_timeline_within2.json \
@@ -192,6 +194,8 @@ for f in [
             data/raw/aug_evidence_no.json \
             data/raw/aug_quality_misleading.json \
             data/raw/aug_quality_notclear.json
+from IPython.display import Image
+Image('/content/translation-transformer/f1_scores.png')
 
 # 7. 存模型 + 圖表
 from datetime import datetime; import shutil
