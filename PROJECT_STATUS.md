@@ -88,7 +88,8 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 |------|-----------|---------|---------|---------|-------|
 | Baseline | 0.64 | 0.72 | 0.73 | 0.38 | ~0.68 |
 | + span aux | 0.837 | 0.865 | 0.746 | 0.478 | 0.759 |
-| + val_score early stopping（現在最佳） | **0.880** | 0.849 | 0.744 | **0.533** | **0.771** |
+| + val_score early stopping | 0.880 | 0.849 | 0.744 | 0.533 | 0.771 |
+| + resume 接續訓練（現在最佳） | **0.884** | **0.906** | **0.782** | **0.794** | **0.842** |
 | + keyword aux（退步，已停用） | 0.813 | 0.851 | 0.757 | 0.301 | 0.728 |
 
 ---
@@ -106,8 +107,9 @@ drive.mount('/content/drive')
 
 # 3. 建 symlink（主資料 + 增強資料）
 import os
-os.symlink('/content/drive/MyDrive/esg_data/vpesg_4k_train_1000.json',
-           '/content/translation-transformer/data/raw/vpesg_4k_train_1000.json')
+dst_main = '/content/translation-transformer/data/raw/vpesg_4k_train_1000.json'
+if not os.path.lexists(dst_main):
+    os.symlink('/content/drive/MyDrive/esg_data/vpesg_4k_train_1000.json', dst_main)
 for f in ['augmented_timeline.json','augmented_commitment.json','augmented_misleading.json',
           'augmented_evidence_no.json','augmented_between.json','augmented_morethan.json']:
     os.symlink(f'/content/drive/MyDrive/esg_data/{f}',
