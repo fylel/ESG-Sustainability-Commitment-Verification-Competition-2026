@@ -94,26 +94,27 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 | Baseline | 0.64 | 0.72 | 0.73 | 0.38 | ~0.68 |
 | + span aux | 0.837 | 0.865 | 0.746 | 0.478 | 0.759 |
 | + val_score early stopping | 0.880 | 0.849 | 0.744 | 0.533 | 0.771 |
-| + resume 接續訓練（現在最佳） | **0.884** | **0.906** | **0.782** | **0.794** | **0.842** |
+| + resume 接續訓練 | **0.884** | **0.906** | **0.782** | **0.794** | **0.842** |
 | + keyword aux（退步，已停用） | 0.813 | 0.851 | 0.757 | 0.301 | 0.728 |
+| + 新增強資料全套（8 個 aug 檔）| 0.780 | 0.891 | **0.834** | 0.483 | 0.787 |
 
-### 現在最佳成績視覺化（Total = 0.842）
+### 最新結果（新增強資料，Total = 0.787）
 
 ```mermaid
 xychart-beta
-    title "Best Model F1 by Task (Total = 0.842)"
+    title "Latest Model F1 by Task (Total = 0.787)"
     x-axis ["commitment (w=0.20)", "evidence (w=0.30)", "clarity (w=0.35)", "timeline (w=0.15)"]
     y-axis "Macro F1" 0 --> 1
-    bar [0.884, 0.906, 0.782, 0.794]
-    line [0.842, 0.842, 0.842, 0.842]
+    bar [0.780, 0.891, 0.834, 0.483]
+    line [0.787, 0.787, 0.787, 0.787]
 ```
 
 ```mermaid
 xychart-beta
-    title "Clarity Sub-class F1 (most critical, w=0.35)"
-    x-axis ["Clear", "Not Clear ⚠", "Misleading"]
+    title "Clarity Sub-class F1 (improved!)"
+    x-axis ["Clear", "Not Clear", "Misleading"]
     y-axis "F1" 0 --> 1
-    bar [0.890, 0.450, 0.620]
+    bar [0.880, 0.650, 0.970]
 ```
 
 ---
@@ -255,7 +256,27 @@ shutil.copy('/content/translation-transformer/f1_scores.png',
 ## 已知問題 / 待處理
 
 - keyword aux 實作完成但會造成退步（timeline 從 0.533 跌到 0.301），原因待查，目前停用（USE_KEYWORD_AUX = False）
-- 下次方向：
-  1. 上傳新增強資料到 Google Drive，重新訓練（--epochs 30）
-  2. 若 clarity Not Clear 仍弱，考慮調高 clarity 的 TASK_LOSS_WEIGHTS（0.35 → 0.40）
-  3. 調低 KEYWORD_LOSS_WEIGHT（0.10 → 0.05）重試 keyword aux
+
+### 下次訓練方向（最優先）
+
+**問題：`aug_timeline_within2.json` 導致 timeline 崩潰**
+- within_2_years precision=0.38，recall=0.96 → 模型過度預測 within_2
+- 原因：153 筆 within_2 增強（92% 是 AI 模板），BERT 過度擬合，把 between_2_5 和 more_than_5 都誤判為 within_2
+- **解法：從 `--augment` 移除 `aug_timeline_within2.json`**（within_2 的 13 筆真實資料已夠，語言特徵本來就清晰）
+
+**保留的成果：**
+- clarity 增強有效：Not Clear 0.45 → 0.65，Misleading 0.62 → 0.97
+- 其餘 7 個 aug 檔保留
+
+**下次訓練指令（Step 5a，移除 within2）：**
+```
+!python train.py --data data/raw/vpesg_4k_train_1000.json \
+  --augment data/raw/aug_timeline_between_clear.json \
+            data/raw/aug_timeline_between_mixed.json \
+            data/raw/aug_timeline_morethan.json \
+            data/raw/aug_commitment_no.json \
+            data/raw/aug_evidence_no.json \
+            data/raw/aug_quality_misleading.json \
+            data/raw/aug_quality_notclear.json \
+  --epochs 30
+```
