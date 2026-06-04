@@ -227,6 +227,8 @@ def main():
     parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter search")
     parser.add_argument("--n_trials", type=int, default=20, help="Number of Optuna trials")
     parser.add_argument("--tune_epochs", type=int, default=5, help="Epochs per trial")
+    parser.add_argument("--resume", type=str, default=None, metavar="CKPT",
+                        help="Resume training from checkpoint (loads weights, uses low LR cosine decay)")
     args = parser.parse_args()
 
     # Device
@@ -274,18 +276,26 @@ def main():
 
     # Model
     model = ESGMultiTaskModel().to(device)
+    if args.resume:
+        model.load_state_dict(torch.load(args.resume, map_location=device))
+        print(f"Resumed from {args.resume}")
     criteria = build_criteria(train_ds, device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=config.WEIGHT_DECAY
     )
 
-    # Scheduler
+    # Scheduler: cosine decay when resuming (no warmup), OneCycleLR for fresh training
     total_steps = len(train_loader) * args.epochs
-    warmup_steps = int(total_steps * config.WARMUP_RATIO)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=args.lr, total_steps=total_steps,
-        pct_start=warmup_steps / total_steps, anneal_strategy="cos",
-    )
+    if args.resume:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=total_steps, eta_min=1e-7
+        )
+    else:
+        warmup_steps = int(total_steps * config.WARMUP_RATIO)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=args.lr, total_steps=total_steps,
+            pct_start=warmup_steps / total_steps, anneal_strategy="cos",
+        )
 
     writer = SummaryWriter(log_dir=str(config.LOGS_DIR / time.strftime("%Y%m%d-%H%M%S")))
     writer.add_text("config", f"model={config.PRETRAINED_MODEL}, batch={config.BATCH_SIZE}, lr={config.LEARNING_RATE}, epochs={args.epochs}")
