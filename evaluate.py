@@ -51,8 +51,8 @@ def evaluate_detailed(all_preds, all_golds):
         labels = sorted(inv.keys())
         target_names = [inv[l] for l in labels]
 
-        macro_f1 = float(f1_score(g, p, average="macro", zero_division=0))
-        micro_f1 = float(f1_score(g, p, average="micro", zero_division=0))
+        macro_f1 = float(f1_score(g, p, labels=labels, average="macro", zero_division=0))
+        micro_f1 = float(f1_score(g, p, labels=labels, average="micro", zero_division=0))
         report = classification_report(g, p, labels=labels,
                                        target_names=target_names,
                                        zero_division=0)
