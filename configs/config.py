@@ -78,14 +78,14 @@ WARMUP_RATIO = 0.1
 EARLY_STOPPING_PATIENCE = 5
 SEED = 42
 VAL_RATIO = 0.15
-TEST_RATIO = 0.15
+TEST_RATIO = 0.0
 
 # ─── Task Loss Weights (for combined loss) ────────────────────────────
 TASK_LOSS_WEIGHTS = {
     "commitment": 0.20,
-    "evidence": 0.35,
+    "evidence": 0.30,
     "clarity": 0.35,
-    "timeline": 0.10,
+    "timeline": 0.15,
 }
 
 # ─── Competition Evaluation Weights ──────────────────────────────────

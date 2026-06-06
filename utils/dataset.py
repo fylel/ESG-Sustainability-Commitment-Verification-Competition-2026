@@ -243,25 +243,37 @@ def get_dataloaders(
     ]
     indices = np.arange(len(dataset))
 
-    try:
-        train_idx, test_idx = train_test_split(
-            indices, test_size=test_ratio, random_state=seed, stratify=strat_keys
-        )
-        val_ratio_adjusted = val_ratio / (1 - test_ratio)
-        strat_keys_train = [strat_keys[i] for i in train_idx]
-        train_idx, val_idx = train_test_split(
-            train_idx, test_size=val_ratio_adjusted, random_state=seed,
-            stratify=strat_keys_train
-        )
-    except ValueError:
-        print("Stratified split failed (rare label combos), falling back to random split.")
-        train_idx, test_idx = train_test_split(
-            indices, test_size=test_ratio, random_state=seed
-        )
-        val_ratio_adjusted = val_ratio / (1 - test_ratio)
-        train_idx, val_idx = train_test_split(
-            train_idx, test_size=val_ratio_adjusted, random_state=seed
-        )
+    if test_ratio > 0:
+        try:
+            train_idx, test_idx = train_test_split(
+                indices, test_size=test_ratio, random_state=seed, stratify=strat_keys
+            )
+            val_ratio_adjusted = val_ratio / (1 - test_ratio)
+            strat_keys_train = [strat_keys[i] for i in train_idx]
+            train_idx, val_idx = train_test_split(
+                train_idx, test_size=val_ratio_adjusted, random_state=seed,
+                stratify=strat_keys_train
+            )
+        except ValueError:
+            print("Stratified split failed (rare label combos), falling back to random split.")
+            train_idx, test_idx = train_test_split(
+                indices, test_size=test_ratio, random_state=seed
+            )
+            val_ratio_adjusted = val_ratio / (1 - test_ratio)
+            train_idx, val_idx = train_test_split(
+                train_idx, test_size=val_ratio_adjusted, random_state=seed
+            )
+    else:
+        test_idx = np.array([], dtype=int)
+        try:
+            train_idx, val_idx = train_test_split(
+                indices, test_size=val_ratio, random_state=seed, stratify=strat_keys
+            )
+        except ValueError:
+            print("Stratified split failed (rare label combos), falling back to random split.")
+            train_idx, val_idx = train_test_split(
+                indices, test_size=val_ratio, random_state=seed
+            )
 
     train_samples = [dataset.samples[i] for i in train_idx]
     val_samples   = [dataset.samples[i] for i in val_idx]

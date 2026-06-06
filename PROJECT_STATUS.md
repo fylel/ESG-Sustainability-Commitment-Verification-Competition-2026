@@ -74,7 +74,7 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 
 | 檔名 | 筆數 | 增強目標 | 內容說明 |
 |------|------|---------|---------|
-| `aug_timeline_within2.json` | 102 | timeline = within_2_years | 2025–2026 年承諾；原始資料只有 13 筆，嚴重不足 |
+| `aug_timeline_within2.json` | 25 | timeline = within_2_years | 舊版 102 筆同質模板替換為 25 筆多樣版；12 行業、多元句型、Clear/Not Clear/Misleading 均有 |
 | `aug_timeline_between_clear.json` | 80 | timeline = between_2_5, Clear | 2027–2029 年承諾，有具體數字與明確執行進度 |
 | `aug_timeline_between_mixed.json` | 80 | timeline = between_2_5, Not Clear/Misleading | 2027–2029 年承諾；Not Clear 26 筆 + Misleading 18 筆，補邊界樣本 |
 | `aug_timeline_morethan.json` | 80 | timeline = more_than_5_years | 2030 年後長期目標 |
@@ -97,24 +97,25 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 | + resume 接續訓練 | **0.884** | **0.906** | **0.782** | **0.794** | **0.842** |
 | + keyword aux（退步，已停用） | 0.813 | 0.851 | 0.757 | 0.301 | 0.728 |
 | + 新增強資料全套（8 個 aug 檔）| 0.780 | 0.891 | **0.834** | 0.483 | 0.787 |
+| + within2 換新版 25 筆多樣版 | 0.821 | 0.847 | **0.871** | 0.466 | 0.793 |
 
-### 最新結果（新增強資料，Total = 0.787）
+### 最新結果（within2 換新版 25 筆，Total = 0.793）
 
 ```mermaid
 xychart-beta
-    title "Latest Model F1 by Task (Total = 0.787)"
+    title "Latest Model F1 by Task (Total = 0.793)"
     x-axis ["commitment (w=0.20)", "evidence (w=0.30)", "clarity (w=0.35)", "timeline (w=0.15)"]
     y-axis "Macro F1" 0 --> 1
-    bar [0.780, 0.891, 0.834, 0.483]
-    line [0.787, 0.787, 0.787, 0.787]
+    bar [0.821, 0.847, 0.871, 0.466]
+    line [0.793, 0.793, 0.793, 0.793]
 ```
 
 ```mermaid
 xychart-beta
-    title "Clarity Sub-class F1 (improved!)"
+    title "Clarity Sub-class F1"
     x-axis ["Clear", "Not Clear", "Misleading"]
     y-axis "F1" 0 --> 1
-    bar [0.880, 0.650, 0.970]
+    bar [0.900, 0.730, 0.970]
 ```
 
 ---
@@ -224,7 +225,7 @@ shutil.copy('/content/translation-transformer/f1_scores.png',
 | 空值/N/A | 186 | 18.6% | 286 | 16.4% | ≈ |
 
 ### evidence_quality
-
+ 
 | 類別 | 原始 | 原始 % | 增強後 | 增強後 % | 變化 |
 |------|-----:|-------:|-------:|---------:|------|
 | Clear | 552 | 55.2% | 743 | 42.7% | ↓（稀釋）|
@@ -253,25 +254,50 @@ shutil.copy('/content/translation-transformer/f1_scores.png',
 | within_2_years F1=1.00（虛假） | 中 | 競賽真實資料可能崩 | 待觀察 |
 | Commitment「No」F1=0.81 | 低 | 類別不平衡 | 已有 aug_commitment_no.json |
 
+### ⚠ 增強資料的兩個根本陷阱
+
+**1. Misleading F1=0.97 是虛假高分 → 決策：放棄訓練 Misleading**
+- 原始資料只有 1 筆 Misleading；增強後 119 筆中 ~118 筆來自 GPT 模板
+- test set 的 Misleading 樣本幾乎全是同款 GPT 寫法，模型學到的是「這種模板 = Misleading」
+- 競賽真實資料不會長這樣，實際泛化能力未知
+- 競賽確認使用 Macro F1（`average="macro", zero_division=0`）：每個類別等權重，少樣本不會自動縮小比重
+- Misleading 在 clarity 內佔 1/3，換算總分約 11.7%（0.35 × 1/3）
+- 陷阱：若競賽 test 有 Misleading 樣本卻預測錯，F1=0，直接拉低分數；原始只有 1 筆無法可靠訓練，故放棄
+- **✅ 決策：保留 aug_quality_misleading.json**；Macro F1 下少樣本≠小影響，放棄等同穩定扣 11.7% 總分
+
+**2. within_2 補足為什麼反而退步（違反直覺）**
+- 13 筆原始 → 153 筆（92% 是 AI 模板），樣本多樣性極低
+- GPT 傾向固定句式（「預計於 2025/2026 年…」），140 筆差異極小
+- 模型 overfit 模板，把有相近寫法的 between_2_5 也誤判為 within_2 → precision=0.38
+- 根本原因：**within_2 年份訊號本來就清晰**（2025/2026），13 筆真實樣本已夠，大量同質模板反而干擾
+- 相比之下，Not Clear / Misleading 語義邊界本來就模糊，更多例子確實幫助學邊界
+- **結論：增強資料有效的前提是多樣性，不是數量**
+
 ## 已知問題 / 待處理
 
 - keyword aux 實作完成但會造成退步（timeline 從 0.533 跌到 0.301），原因待查，目前停用（USE_KEYWORD_AUX = False）
 
 ### 下次訓練方向（最優先）
 
-**問題：`aug_timeline_within2.json` 導致 timeline 崩潰**
-- within_2_years precision=0.38，recall=0.96 → 模型過度預測 within_2
-- 原因：153 筆 within_2 增強（92% 是 AI 模板），BERT 過度擬合，把 between_2_5 和 more_than_5 都誤判為 within_2
-- **解法：從 `--augment` 移除 `aug_timeline_within2.json`**（within_2 的 13 筆真實資料已夠，語言特徵本來就清晰）
+**問題：timeline 整體偏弱（Macro F1=0.466）**
+- within_2 precision=0.31，recall=0.85 → 仍過度預測
+- 原因：換新版 within2（25 筆）後仍有問題；`aug_quality_misleading.json` 和 `aug_evidence_no.json` 各有 25 筆 within_2 → 增強總量仍達 75 筆
+- between_2_5 F1=0.46、more_than_5 F1=0.38 同樣偏弱
+
+**待處理改善（優先序）：**
+1. 改 `dataset.py` → val/test 只用原始資料，取得誠實評估基準
+2. 降低其他 aug 檔中 within_2 的樣本比例（misleading/evidence_no 各有 25 筆）
+3. 提高 timeline loss weight：0.10 → 0.15（對齊競賽評分）
 
 **保留的成果：**
 - clarity 增強有效：Not Clear 0.45 → 0.65，Misleading 0.62 → 0.97
 - 其餘 7 個 aug 檔保留
 
-**下次訓練指令（Step 5a，移除 within2）：**
+**下次訓練指令（Step 5a，全 8 個 aug 檔，within2 已換新版 25 筆多樣版）：**
 ```
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
-  --augment data/raw/aug_timeline_between_clear.json \
+  --augment data/raw/aug_timeline_within2.json \
+            data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
             data/raw/aug_timeline_morethan.json \
             data/raw/aug_commitment_no.json \
@@ -280,3 +306,5 @@ shutil.copy('/content/translation-transformer/f1_scores.png',
             data/raw/aug_quality_notclear.json \
   --epochs 30
 ```
+> aug_timeline_within2.json → 舊版 102 筆同質模板已替換為新版 25 筆多樣版（12 行業、多元句型）
+> aug_quality_misleading.json → 保留；Macro F1 下 Misleading 佔 11.7% 總分，不能放棄
