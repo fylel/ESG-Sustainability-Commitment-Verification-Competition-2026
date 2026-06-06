@@ -144,10 +144,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    _, _, test_loader = get_dataloaders(
+    _, val_loader, test_loader = get_dataloaders(
         Path(args.data), batch_size=args.batch_size, augment_paths=args.augment
     )
-    print(f"Test samples: {len(test_loader.dataset)}")
+    eval_loader = test_loader if len(test_loader.dataset) > 0 else val_loader
+    split_name = "Test" if len(test_loader.dataset) > 0 else "Val"
+    print(f"{split_name} samples: {len(eval_loader.dataset)}")
 
     model = ESGMultiTaskModel().to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
@@ -159,7 +161,7 @@ def main():
     all_golds = {t: [] for t in config.TASK_NAMES}
 
     with torch.no_grad():
-        for input_ids, attention_mask, labels, _span, _kw in test_loader:
+        for input_ids, attention_mask, labels, _span, _kw in eval_loader:
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
             logits = model(input_ids, attention_mask)
