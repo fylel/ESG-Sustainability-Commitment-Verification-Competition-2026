@@ -56,6 +56,18 @@ def encode_labels(sample: dict) -> Dict[str, int]:
         raw_val = normalise_field(sample.get(src_field, ""))
         mapping = config.LABEL_MAPS[task]
         labels[task] = mapping.get(raw_val, config.IGNORE_INDEX)
+
+    # commitment=No → evidence/clarity/timeline logically N/A
+    if labels["commitment"] == config.COMMITMENT_MAP["No"]:
+        for task in ("evidence", "clarity", "timeline"):
+            if labels[task] == config.IGNORE_INDEX:
+                labels[task] = config.LABEL_MAPS[task]["N/A"]
+
+    # evidence=No → clarity logically N/A
+    if labels["evidence"] == config.EVIDENCE_MAP["No"]:
+        if labels["clarity"] == config.IGNORE_INDEX:
+            labels["clarity"] = config.CLARITY_MAP["N/A"]
+
     return labels
 
 
