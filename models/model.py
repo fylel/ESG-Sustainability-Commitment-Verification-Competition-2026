@@ -12,7 +12,7 @@ Architecture
    ┌────┴────┬──────────┬──────────┐
    head_0   head_1    head_2     head_3
  commitment evidence  clarity   timeline
-   (2)       (2)       (3)       (4)
+   (2)       (3)       (4)       (5)
 """
 
 import torch

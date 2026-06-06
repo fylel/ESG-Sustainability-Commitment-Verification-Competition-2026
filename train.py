@@ -343,14 +343,17 @@ def main():
 
     # Final test evaluation
     print("\n" + "=" * 20 + "  Test Set  " + "=" * 20)
-    if not save_path.exists():
-        print("Warning: no checkpoint found, evaluating with current weights")
+    if len(test_loader.dataset) == 0:
+        print("No test set (TEST_RATIO=0), skipping.")
     else:
-        model.load_state_dict(torch.load(save_path, map_location=device))
-    test_loss, test_metrics, test_preds, test_golds = evaluate(model, test_loader, device, criteria)
-    test_results = evaluate_detailed(test_preds, test_golds)
-    print(f"Test loss: {test_loss:.4f}  |  Test score: {test_results['final_weighted_score']:.5f}")
-    print_metrics(test_metrics)
+        if not save_path.exists():
+            print("Warning: no checkpoint found, evaluating with current weights")
+        else:
+            model.load_state_dict(torch.load(save_path, map_location=device))
+        test_loss, test_metrics, test_preds, test_golds = evaluate(model, test_loader, device, criteria)
+        test_results = evaluate_detailed(test_preds, test_golds)
+        print(f"Test loss: {test_loss:.4f}  |  Test score: {test_results['final_weighted_score']:.5f}")
+        print_metrics(test_metrics)
 
 
 if __name__ == "__main__":

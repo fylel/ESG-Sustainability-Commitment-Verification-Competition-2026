@@ -37,14 +37,14 @@ TASK_SOURCE_FIELDS = {
 IGNORE_INDEX = -1  # only for truly missing labels (empty string)
 
 COMMITMENT_MAP = {"No": 0, "Yes": 1, "": IGNORE_INDEX}
-EVIDENCE_MAP   = {"No": 0, "Yes": 1, "N/A": IGNORE_INDEX, "": IGNORE_INDEX}
-CLARITY_MAP    = {"Clear": 0, "Not Clear": 1, "Misleading": 2, "N/A": IGNORE_INDEX, "": IGNORE_INDEX}
+EVIDENCE_MAP   = {"No": 0, "Yes": 1, "N/A": 2, "": IGNORE_INDEX}
+CLARITY_MAP    = {"Clear": 0, "Not Clear": 1, "Misleading": 2, "N/A": 3, "": IGNORE_INDEX}
 TIMELINE_MAP   = {
     "already": 0,
     "within_2_years": 1,
     "between_2_and_5_years": 2,
     "more_than_5_years": 3,
-    "N/A": IGNORE_INDEX,
+    "N/A": 4,
     "": IGNORE_INDEX,
 }
 
@@ -55,12 +55,11 @@ LABEL_MAPS = {
     "timeline": TIMELINE_MAP,
 }
 
-# N/A never appears in actual data — treated as IGNORE_INDEX
 NUM_CLASSES = {
     "commitment": 2,
-    "evidence": 2,
-    "clarity": 3,
-    "timeline": 4,
+    "evidence": 3,   # No=0, Yes=1, N/A=2
+    "clarity": 4,    # Clear=0, Not Clear=1, Misleading=2, N/A=3
+    "timeline": 5,   # already=0, within_2=1, between_2_5=2, more_than_5=3, N/A=4
 }
 
 # ─── Model ────────────────────────────────────────────────────────────
