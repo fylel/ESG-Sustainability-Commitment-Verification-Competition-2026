@@ -231,11 +231,13 @@ def get_dataloaders(
     seed: int = config.SEED,
     return_train_ds: bool = False,
     augment_paths: Optional[List[Path]] = None,
+    val_path: Optional[Path] = None,
 ):
     """Return (train_loader, val_loader, test_loader[, train_ds]).
 
-    augment_paths: augmented samples are merged with original data before splitting,
-                   so augmented samples can appear in train/val/test proportionally.
+    val_path: if provided, load validation set from this file directly and use
+              ALL samples in data_path (+augment_paths) for training (no split).
+    augment_paths: augmented samples merged into training data.
     """
     tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
@@ -246,54 +248,56 @@ def get_dataloaders(
             samples.extend(aug)
         print(f"Total samples after augmentation: {len(samples)}")
 
-    dataset = ESGDataset(samples, tokenizer)
-
-    # stratify key: combine all task labels into one string per sample
-    strat_keys = [
-        "_".join(str(lbl[t]) for t in config.TASK_NAMES)
-        for lbl in dataset.labels
-    ]
-    indices = np.arange(len(dataset))
-
-    if test_ratio > 0:
-        try:
-            train_idx, test_idx = train_test_split(
-                indices, test_size=test_ratio, random_state=seed, stratify=strat_keys
-            )
-            val_ratio_adjusted = val_ratio / (1 - test_ratio)
-            strat_keys_train = [strat_keys[i] for i in train_idx]
-            train_idx, val_idx = train_test_split(
-                train_idx, test_size=val_ratio_adjusted, random_state=seed,
-                stratify=strat_keys_train
-            )
-        except ValueError:
-            print("Stratified split failed (rare label combos), falling back to random split.")
-            train_idx, test_idx = train_test_split(
-                indices, test_size=test_ratio, random_state=seed
-            )
-            val_ratio_adjusted = val_ratio / (1 - test_ratio)
-            train_idx, val_idx = train_test_split(
-                train_idx, test_size=val_ratio_adjusted, random_state=seed
-            )
+    if val_path is not None:
+        # External val set: train on everything, validate on separate file
+        val_samples_raw = load_raw_samples(Path(val_path), max_samples=100_000)
+        train_ds = ESGDataset(samples,          tokenizer)
+        val_ds   = ESGDataset(val_samples_raw,  tokenizer)
+        test_ds  = ESGDataset([],               tokenizer)
+        print(f"External val set: {len(val_ds)} samples from {val_path}")
     else:
-        test_idx = np.array([], dtype=int)
-        try:
-            train_idx, val_idx = train_test_split(
-                indices, test_size=val_ratio, random_state=seed, stratify=strat_keys
-            )
-        except ValueError:
-            print("Stratified split failed (rare label combos), falling back to random split.")
-            train_idx, val_idx = train_test_split(
-                indices, test_size=val_ratio, random_state=seed
-            )
+        dataset = ESGDataset(samples, tokenizer)
+        strat_keys = [
+            "_".join(str(lbl[t]) for t in config.TASK_NAMES)
+            for lbl in dataset.labels
+        ]
+        indices = np.arange(len(dataset))
 
-    train_samples = [dataset.samples[i] for i in train_idx]
-    val_samples   = [dataset.samples[i] for i in val_idx]
-    test_samples  = [dataset.samples[i] for i in test_idx]
+        if test_ratio > 0:
+            try:
+                train_idx, test_idx = train_test_split(
+                    indices, test_size=test_ratio, random_state=seed, stratify=strat_keys
+                )
+                val_ratio_adjusted = val_ratio / (1 - test_ratio)
+                strat_keys_train = [strat_keys[i] for i in train_idx]
+                train_idx, val_idx = train_test_split(
+                    train_idx, test_size=val_ratio_adjusted, random_state=seed,
+                    stratify=strat_keys_train
+                )
+            except ValueError:
+                print("Stratified split failed, falling back to random split.")
+                train_idx, test_idx = train_test_split(
+                    indices, test_size=test_ratio, random_state=seed
+                )
+                val_ratio_adjusted = val_ratio / (1 - test_ratio)
+                train_idx, val_idx = train_test_split(
+                    train_idx, test_size=val_ratio_adjusted, random_state=seed
+                )
+        else:
+            test_idx = np.array([], dtype=int)
+            try:
+                train_idx, val_idx = train_test_split(
+                    indices, test_size=val_ratio, random_state=seed, stratify=strat_keys
+                )
+            except ValueError:
+                print("Stratified split failed, falling back to random split.")
+                train_idx, val_idx = train_test_split(
+                    indices, test_size=val_ratio, random_state=seed
+                )
 
-    train_ds = ESGDataset(train_samples, tokenizer)
-    val_ds   = ESGDataset(val_samples,   tokenizer)
-    test_ds  = ESGDataset(test_samples,  tokenizer)
+        train_ds = ESGDataset([dataset.samples[i] for i in train_idx], tokenizer)
+        val_ds   = ESGDataset([dataset.samples[i] for i in val_idx],   tokenizer)
+        test_ds  = ESGDataset([dataset.samples[i] for i in test_idx],  tokenizer)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size)

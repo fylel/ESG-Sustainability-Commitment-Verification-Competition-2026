@@ -223,7 +223,9 @@ def main():
     parser.add_argument("--lr", type=float, default=config.LEARNING_RATE)
     parser.add_argument("--save_path", type=str, default=str(config.MODELS_DIR / "best.pt"))
     parser.add_argument("--augment", nargs="+", default=None, metavar="FILE",
-                        help="Augmented JSON files appended to train split only")
+                        help="Augmented JSON files appended to training data")
+    parser.add_argument("--val_data", type=str, default=None, metavar="FILE",
+                        help="External validation JSON (uses all train data for training, no split)")
     parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter search")
     parser.add_argument("--n_trials", type=int, default=20, help="Number of Optuna trials")
     parser.add_argument("--tune_epochs", type=int, default=5, help="Epochs per trial")
@@ -242,6 +244,7 @@ def main():
     train_loader, val_loader, test_loader, train_ds = get_dataloaders(
         Path(args.data), batch_size=args.batch_size, return_train_ds=True,
         augment_paths=args.augment,
+        val_path=Path(args.val_data) if args.val_data else None,
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")

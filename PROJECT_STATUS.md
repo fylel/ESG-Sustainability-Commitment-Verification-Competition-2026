@@ -8,12 +8,14 @@
 
 ### 4 個子任務
 
-| 任務 | 欄位 | 類別數 | 評分權重 |
-|------|------|--------|---------|
-| commitment | promise_status | 2 | 0.20 |
-| timeline | verification_timeline | 4 | 0.15 |
-| evidence | evidence_status | 2 | 0.30 |
-| clarity | evidence_quality | 3 | 0.35 |
+| 任務 | 欄位 | 類別數 | 類別列表 | 評分權重 |
+|------|------|--------|---------|---------|
+| commitment | promise_status | 2 | Yes / No | 0.20 |
+| timeline | verification_timeline | 5 | already / within_2 / between_2_5 / more_than_5 / **N/A** | 0.15 |
+| evidence | evidence_status | 3 | Yes / No / **N/A** | 0.30 |
+| clarity | evidence_quality | 4 | Clear / Not Clear / Misleading / **N/A** | 0.35 |
+
+> **N/A 是競賽真實評分類別**（官方 EVAL_FIELDS 明確列出），以 Macro F1 等權計算。若模型從不預測 N/A，對應類別 F1=0，直接拉低分數。
 
 ---
 
@@ -22,10 +24,10 @@
 ```
 raw data → BERT (hfl/chinese-macbert-base)
                 │
-         [CLS] hidden ──→ commitment head (2)
-                      ──→ evidence head   (2)
-                      ──→ clarity head    (3)
-                      ──→ timeline head   (4)
+         [CLS] hidden ──→ commitment head (2)  Yes / No
+                      ──→ evidence head   (3)  Yes / No / N/A
+                      ──→ clarity head    (4)  Clear / Not Clear / Misleading / N/A
+                      ──→ timeline head   (5)  already / within_2 / between_2_5 / more_than_5 / N/A
                 │
          每個 token ──→ promise_span_head  (start/end)  ← 訓練用，推論丟棄
                     ──→ evidence_span_head (start/end)  ← 訓練用，推論丟棄
@@ -132,11 +134,14 @@ import os; os.chdir('/content')
 !rm -rf /content/translation-transformer
 !git clone https://github.com/fylel/ESG-Sustainability-Commitment-Verification-Competition-2026.git /content/translation-transformer
 
-# 3. 建 symlink（主資料 + 增強資料）
+# 3. 建 symlink（主資料 + 增強資料 + 驗證資料）
 import os
 dst_main = '/content/translation-transformer/data/raw/vpesg_4k_train_1000.json'
 if not os.path.lexists(dst_main):
     os.symlink('/content/drive/MyDrive/esg_data/vpesg_4k_train_1000.json', dst_main)
+dst_val = '/content/translation-transformer/data/raw/vpesg4k_val_1000.json'
+if not os.path.lexists(dst_val):
+    os.symlink('/content/drive/MyDrive/esg_data/vpesg4k_val_1000.json', dst_val)
 for f in [
     'aug_timeline_within2.json',
     'aug_timeline_between_clear.json',
@@ -157,6 +162,7 @@ for f in [
 # 5a. 全新訓練（第一次 or 資料有大幅變動）
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
+  --val_data data/raw/vpesg4k_val_1000.json \
   --augment data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
@@ -171,6 +177,7 @@ for f in [
 # 先把上次存的 .pt 複製到 /content/best.pt，再執行：
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
+  --val_data data/raw/vpesg4k_val_1000.json \
   --augment data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
@@ -187,6 +194,7 @@ for f in [
 %matplotlib inline
 %cd /content/translation-transformer
 !python evaluate.py --data data/raw/vpesg_4k_train_1000.json \
+  --val_data data/raw/vpesg4k_val_1000.json \
   --checkpoint /content/best.pt \
   --augment data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
@@ -272,6 +280,36 @@ shutil.copy('/content/translation-transformer/f1_scores.png',
 - 根本原因：**within_2 年份訊號本來就清晰**（2025/2026），13 筆真實樣本已夠，大量同質模板反而干擾
 - 相比之下，Not Clear / Misleading 語義邊界本來就模糊，更多例子確實幫助學邊界
 - **結論：增強資料有效的前提是多樣性，不是數量**
+
+## 架構設計決策
+
+### N/A 處理：為何不用階層式模型（commitment 結果往下傳）
+
+**問法**：既然 commitment=No → evidence/clarity/timeline 全部 N/A 是邏輯規則，為什麼不把 commitment 頭的輸出傳給下游頭？
+
+**問題一：訓練初期不穩定**
+- 訓練早期 commitment 頭預測幾乎全錯
+- 若把錯誤預測傳給 evidence/clarity/timeline 頭，三個頭同時學到錯誤信號，全部學壞
+- 錯誤從 commitment 層開始向下 cascade，難以收斂
+
+**問題二：梯度無法流通**
+- 傳遞方式若用 hard argmax（取最高分類別）→ 不可微，梯度無法回傳給 commitment 頭
+- 傳遞 soft logits/probability 雖可微，但早期 noise 仍大
+
+**解法：獨立頭 + 推論後處理**
+- 4 個頭各自獨立讀同一個 `[CLS]`，互不影響，訓練穩定
+- 推論完成後套確定性規則（post-processing）：
+  - `commitment_pred = "No"` → 強制 evidence / clarity / timeline = `"N/A"`
+  - `evidence_pred = "No"` → 強制 clarity = `"N/A"`
+- 規則 100% 正確，不依賴模型學到這個 pattern
+
+**為何還要訓練 N/A 類別（不用 IGNORE_INDEX）**
+- 4 個頭彼此獨立，evidence 頭不知道 commitment 頭預測了什麼
+- 若 commitment 預測錯（判 Yes 但真實 No），post-processing 不會觸發，evidence 頭就拿「從沒訓練過 N/A」的結果去輸出
+- 讓模型訓練 N/A 類別 = 讓 evidence/clarity/timeline 頭也學到文字特徵 → N/A 的關聯，作為 fallback
+- 同時，`encode_labels` 的 dependency rules 把原始資料的 `""` 補成 N/A index，確保訓練資料有 N/A 樣本
+
+---
 
 ## 已知問題 / 待處理
 

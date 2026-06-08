@@ -139,13 +139,16 @@ def main():
     parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
     parser.add_argument("--augment", nargs="+", default=None, metavar="FILE",
                         help="Same augmented files used during training (must match train.py)")
+    parser.add_argument("--val_data", type=str, default=None, metavar="FILE",
+                        help="External validation JSON (same as used in train.py)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     _, val_loader, test_loader = get_dataloaders(
-        Path(args.data), batch_size=args.batch_size, augment_paths=args.augment
+        Path(args.data), batch_size=args.batch_size, augment_paths=args.augment,
+        val_path=Path(args.val_data) if args.val_data else None,
     )
     eval_loader = test_loader if len(test_loader.dataset) > 0 else val_loader
     split_name = "Test" if len(test_loader.dataset) > 0 else "Val"
