@@ -147,6 +147,7 @@ dst_test = '/content/translation-transformer/data/raw/vpesg4k_test_2000.json'
 if not os.path.lexists(dst_test):
     os.symlink('/content/drive/MyDrive/esg_data/vpesg4k_test_2000.json', dst_test)
 for f in [
+    'vpesg_4k_train_1000_synthetic_only.json',
     'aug_timeline_within2.json',
     'aug_timeline_between_clear.json',
     'aug_timeline_between_mixed.json',
@@ -177,7 +178,8 @@ print("done")
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
   --val_data data/raw/vpesg4k_val_1000.json \
-  --augment data/raw/aug_timeline_within2.json \
+  --augment data/raw/vpesg_4k_train_1000_synthetic_only.json \
+            data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
             data/raw/aug_timeline_morethan.json \
@@ -194,7 +196,8 @@ print("done")
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
   --val_data data/raw/vpesg4k_val_1000.json \
   --merge_val \
-  --augment data/raw/aug_timeline_within2.json \
+  --augment data/raw/vpesg_4k_train_1000_synthetic_only.json \
+            data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
             data/raw/aug_timeline_morethan.json \
@@ -215,7 +218,8 @@ print("複製完成:", pts[-1])
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
   --val_data data/raw/vpesg4k_val_1000.json \
-  --augment data/raw/aug_timeline_within2.json \
+  --augment data/raw/vpesg_4k_train_1000_synthetic_only.json \
+            data/raw/aug_timeline_within2.json \
             data/raw/aug_timeline_between_clear.json \
             data/raw/aug_timeline_between_mixed.json \
             data/raw/aug_timeline_morethan.json \
