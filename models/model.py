@@ -66,6 +66,18 @@ class KeywordHead(nn.Module):
         return self.linear(self.dropout(sequence_output))  # (B, seq_len, 2)
 
 
+class TemporalHead(nn.Module):
+    """3-class token classifier: non-temporal(0) / near-term(1) / long-term(2)."""
+
+    def __init__(self, hidden_dim: int, dropout: float):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.linear = nn.Linear(hidden_dim, 3)
+
+    def forward(self, sequence_output: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.dropout(sequence_output))  # (B, seq_len, 3)
+
+
 class ESGMultiTaskModel(nn.Module):
     """
     Shared BERT encoder + one TaskHead per task.
@@ -95,6 +107,9 @@ class ESGMultiTaskModel(nn.Module):
         if config.USE_KEYWORD_AUX:
             self.keyword_head = KeywordHead(hidden_dim, dropout)
 
+        if config.USE_TEMPORAL_AUX:
+            self.temporal_head = TemporalHead(hidden_dim, dropout)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -117,5 +132,8 @@ class ESGMultiTaskModel(nn.Module):
 
         if config.USE_KEYWORD_AUX:
             logits["keyword"] = self.keyword_head(sequence_output)  # (B, seq_len, 2)
+
+        if config.USE_TEMPORAL_AUX:
+            logits["temporal"] = self.temporal_head(sequence_output)  # (B, seq_len, 3)
 
         return logits

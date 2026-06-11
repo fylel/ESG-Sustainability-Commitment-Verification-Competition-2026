@@ -59,6 +59,8 @@ def build_criteria(train_ds, device) -> dict:
         criteria["__span__"] = nn.CrossEntropyLoss(ignore_index=-1).to(device)
     if config.USE_KEYWORD_AUX:
         criteria["__keyword__"] = nn.CrossEntropyLoss(ignore_index=-1).to(device)
+    if config.USE_TEMPORAL_AUX:
+        criteria["__temporal__"] = nn.CrossEntropyLoss(ignore_index=-1).to(device)
     return criteria
 
 
@@ -68,6 +70,7 @@ def combined_loss(
     criteria: dict,
     span_labels: torch.Tensor = None,
     keyword_labels: torch.Tensor = None,
+    temporal_labels: torch.Tensor = None,
 ) -> torch.Tensor:
     """
     logits         : {task_name: (B, C), optionally span/keyword logits}
@@ -84,13 +87,20 @@ def combined_loss(
     if (config.USE_SPAN_AUX and span_labels is not None
             and "__span__" in criteria):
         span_ce = criteria["__span__"]
-        span_loss = (
-            span_ce(logits["promise_start"],  span_labels[:, 0]) +
-            span_ce(logits["promise_end"],    span_labels[:, 1]) +
-            span_ce(logits["evidence_start"], span_labels[:, 2]) +
-            span_ce(logits["evidence_end"],   span_labels[:, 3])
-        ) / 4
-        total = total + config.SPAN_LOSS_WEIGHT * span_loss
+        span_terms = [
+            (logits["promise_start"],  span_labels[:, 0]),
+            (logits["promise_end"],    span_labels[:, 1]),
+            (logits["evidence_start"], span_labels[:, 2]),
+            (logits["evidence_end"],   span_labels[:, 3]),
+        ]
+        span_loss_sum = torch.tensor(0.0, device=labels.device)
+        valid_count = 0
+        for logit, lbl in span_terms:
+            if (lbl != -1).any():
+                span_loss_sum = span_loss_sum + span_ce(logit, lbl)
+                valid_count += 1
+        if valid_count > 0:
+            total = total + config.SPAN_LOSS_WEIGHT * span_loss_sum / valid_count
 
     if (config.USE_KEYWORD_AUX and keyword_labels is not None
             and "__keyword__" in criteria):
@@ -100,6 +110,15 @@ def combined_loss(
             kw_logits.view(B * S, C), keyword_labels.view(B * S)
         )
         total = total + config.KEYWORD_LOSS_WEIGHT * kw_loss
+
+    if (config.USE_TEMPORAL_AUX and temporal_labels is not None
+            and "__temporal__" in criteria):
+        tm_logits = logits["temporal"]          # (B, seq_len, 3)
+        B, S, C = tm_logits.shape
+        tm_loss = criteria["__temporal__"](
+            tm_logits.view(B * S, C), temporal_labels.view(B * S)
+        )
+        total = total + config.TEMPORAL_LOSS_WEIGHT * tm_loss
 
     return total
 
@@ -154,16 +173,17 @@ def train_one_epoch(model, loader, device, optimizer, criteria):
     running_loss = 0.0
     n_samples = 0
 
-    for input_ids, attention_mask, labels, span_labels, keyword_labels in tqdm(loader, desc="Train"):
+    for input_ids, attention_mask, labels, span_labels, keyword_labels, temporal_labels in tqdm(loader, desc="Train"):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         labels = labels.to(device)
         span_labels = span_labels.to(device)
         keyword_labels = keyword_labels.to(device)
+        temporal_labels = temporal_labels.to(device)
 
         optimizer.zero_grad()
         logits = model(input_ids, attention_mask)
-        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels)
+        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels, temporal_labels)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -183,15 +203,16 @@ def evaluate(model, loader, device, criteria):
     all_preds = {t: [] for t in config.TASK_NAMES}
     all_golds = {t: [] for t in config.TASK_NAMES}
 
-    for input_ids, attention_mask, labels, span_labels, keyword_labels in loader:
+    for input_ids, attention_mask, labels, span_labels, keyword_labels, temporal_labels in loader:
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         labels = labels.to(device)
         span_labels = span_labels.to(device)
         keyword_labels = keyword_labels.to(device)
+        temporal_labels = temporal_labels.to(device)
 
         logits = model(input_ids, attention_mask)
-        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels)
+        loss = combined_loss(logits, labels, criteria, span_labels, keyword_labels, temporal_labels)
 
         running_loss += loss.item() * input_ids.size(0)
         n_samples += input_ids.size(0)
@@ -280,7 +301,12 @@ def main():
     # Model
     model = ESGMultiTaskModel().to(device)
     if args.resume:
-        model.load_state_dict(torch.load(args.resume, map_location=device))
+        ckpt = torch.load(args.resume, map_location=device)
+        missing, unexpected = model.load_state_dict(ckpt, strict=False)
+        if missing:
+            print(f"[resume] randomly initialised: {missing}")
+        if unexpected:
+            print(f"[resume] ignored (not in model): {unexpected}")
         print(f"Resumed from {args.resume}")
     criteria = build_criteria(train_ds, device)
     optimizer = torch.optim.AdamW(

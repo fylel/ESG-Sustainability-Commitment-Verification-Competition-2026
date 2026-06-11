@@ -103,3 +103,9 @@ SPAN_LOSS_WEIGHT = 0.15
 
 USE_KEYWORD_AUX = False
 KEYWORD_LOSS_WEIGHT = 0.10
+
+USE_TEMPORAL_AUX = False
+TEMPORAL_LOSS_WEIGHT = 0.10
+# timeline classes that map to near-term (1) vs long-term (2) temporal labels
+TIMELINE_NEAR_CLASSES = frozenset({0, 1})   # already, within_2
+TIMELINE_FAR_CLASSES  = frozenset({2, 3})   # between_2_5, more_than_5
