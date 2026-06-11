@@ -335,11 +335,14 @@ def get_dataloaders(
     return_train_ds: bool = False,
     augment_paths: Optional[List[Path]] = None,
     val_path: Optional[Path] = None,
+    merge_val: bool = False,
 ):
     """Return (train_loader, val_loader, test_loader[, train_ds]).
 
-    val_path: if provided, load validation set from this file directly and use
-              ALL samples in data_path (+augment_paths) for training (no split).
+    val_path: if provided and merge_val=False, use as external validation set
+              (all main data goes to training). If merge_val=True, the val
+              samples are merged into the training pool and a normal split is
+              performed — useful for final submission training.
     augment_paths: augmented samples merged into training data.
     """
     tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
@@ -351,7 +354,7 @@ def get_dataloaders(
             samples.extend(aug)
         print(f"Total samples after augmentation: {len(samples)}")
 
-    if val_path is not None:
+    if val_path is not None and not merge_val:
         # External val set: train on everything, validate on separate file
         val_samples_raw = load_raw_samples(Path(val_path), max_samples=100_000)
         train_ds = ESGDataset(samples,          tokenizer)
@@ -359,6 +362,11 @@ def get_dataloaders(
         test_ds  = ESGDataset([],               tokenizer)
         print(f"External val set: {len(val_ds)} samples from {val_path}")
     else:
+        if val_path is not None and merge_val:
+            val_samples_raw = load_raw_samples(Path(val_path), max_samples=100_000)
+            samples.extend(val_samples_raw)
+            print(f"merge_val: added {len(val_samples_raw)} val samples to training pool "
+                  f"(total {len(samples)})")
         dataset = ESGDataset(samples, tokenizer)
         strat_keys = [
             "_".join(str(lbl[t]) for t in config.TASK_NAMES)

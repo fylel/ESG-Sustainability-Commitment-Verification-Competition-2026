@@ -100,6 +100,7 @@ Total Loss = 0.20×commitment + 0.35×evidence + 0.35×clarity + 0.10×timeline
 | + keyword aux（退步，已停用） | 0.813 | 0.851 | 0.757 | 0.301 | 0.728 |
 | + 新增強資料全套（8 個 aug 檔）| 0.780 | 0.891 | **0.834** | 0.483 | 0.787 |
 | + within2 換新版 25 筆多樣版 | 0.821 | 0.847 | **0.871** | 0.466 | 0.793 |
+| 從零訓練 45 epoch，無 temporal aux（新架構含 N/A class） | 0.809 | 0.661 | 0.431 | 0.539 | 0.592 |
 
 ### 最新結果（within2 換新版 25 筆，Total = 0.793）
 
@@ -134,7 +135,7 @@ import os; os.chdir('/content')
 !rm -rf /content/translation-transformer
 !git clone https://github.com/fylel/ESG-Sustainability-Commitment-Verification-Competition-2026.git /content/translation-transformer
 
-# 3. 建 symlink（主資料 + 增強資料 + 驗證資料）
+# 3. 建 symlink（主資料 + 增強資料 + 驗證資料 + 測試資料）
 import os
 dst_main = '/content/translation-transformer/data/raw/vpesg_4k_train_1000.json'
 if not os.path.lexists(dst_main):
@@ -142,6 +143,9 @@ if not os.path.lexists(dst_main):
 dst_val = '/content/translation-transformer/data/raw/vpesg4k_val_1000.json'
 if not os.path.lexists(dst_val):
     os.symlink('/content/drive/MyDrive/esg_data/vpesg4k_val_1000.json', dst_val)
+dst_test = '/content/translation-transformer/data/raw/vpesg4k_test_2000.json'
+if not os.path.lexists(dst_test):
+    os.symlink('/content/drive/MyDrive/esg_data/vpesg4k_test_2000.json', dst_test)
 for f in [
     'aug_timeline_within2.json',
     'aug_timeline_between_clear.json',
@@ -181,7 +185,25 @@ print("done")
             data/raw/aug_evidence_no.json \
             data/raw/aug_quality_misleading.json \
             data/raw/aug_quality_notclear.json \
-  --epochs 30
+  --epochs 30 \
+  2>&1 | tee /content/train.log
+
+# 5c. 最終提交訓練（訓練集 + 驗證集 + 增強全部合併，用全量資料訓練）
+# ⚠ 跑完後就能直接做 Step 8 提交，不需要評估（因為沒有獨立 val set）
+%cd /content/translation-transformer
+!python train.py --data data/raw/vpesg_4k_train_1000.json \
+  --val_data data/raw/vpesg4k_val_1000.json \
+  --merge_val \
+  --augment data/raw/aug_timeline_within2.json \
+            data/raw/aug_timeline_between_clear.json \
+            data/raw/aug_timeline_between_mixed.json \
+            data/raw/aug_timeline_morethan.json \
+            data/raw/aug_commitment_no.json \
+            data/raw/aug_evidence_no.json \
+            data/raw/aug_quality_misleading.json \
+            data/raw/aug_quality_notclear.json \
+  --epochs 50 \
+  2>&1 | tee /content/train_final.log
 
 # 5b. 繼續訓練（從現有 checkpoint 接續，用較低 LR）
 # 先把上次存的 .pt 複製到 /content/best.pt，再執行：
@@ -203,7 +225,8 @@ print("複製完成:", pts[-1])
             data/raw/aug_quality_notclear.json \
   --resume /content/best.pt \
   --lr 5e-6 \
-  --epochs 15
+  --epochs 15 \
+  2>&1 | tee /content/train.log
 
 # 6. 評估 + 圖表
 %matplotlib inline
@@ -222,13 +245,36 @@ print("複製完成:", pts[-1])
 from IPython.display import Image
 Image('/content/translation-transformer/f1_scores.png')
 
-# 7. 存模型 + 圖表
-from datetime import datetime; import shutil
+# 7. 存模型 + 圖表 + log
+from datetime import datetime
+import shutil
+
 ts = datetime.now().strftime("%m%d_%H%M")
 shutil.copy('/content/best.pt',
             f'/content/drive/MyDrive/esg_data/best_{ts}.pt')
 shutil.copy('/content/translation-transformer/f1_scores.png',
             f'/content/drive/MyDrive/esg_data/f1_scores_{ts}.png')
+shutil.copy('/content/train.log',
+            f'/content/drive/MyDrive/esg_data/train_{ts}.log')
+print(f"已存：best_{ts}.pt + f1_scores_{ts}.png + train_{ts}.log")
+
+# 8. 生成競賽提交 CSV（2000 筆，IDs 12001~14000）
+%cd /content/translation-transformer
+!python submit.py \
+  --data data/raw/vpesg4k_test_2000.json \
+  --checkpoint /content/best.pt \
+  --output /content/submission.csv
+
+# 存到 Drive + 預覽
+import shutil, pandas as pd
+shutil.copy('/content/submission.csv',
+            '/content/drive/MyDrive/esg_data/submission.csv')
+df = pd.read_csv('/content/submission.csv')
+print(f"Total rows: {len(df)}  (should be 2000)")
+print(df.head(10))
+print("\n欄位分布：")
+for col in ['promise_status','verification_timeline','evidence_status','evidence_quality']:
+    print(f"  {col}:", df[col].value_counts().to_dict())
 ```
 
 ---

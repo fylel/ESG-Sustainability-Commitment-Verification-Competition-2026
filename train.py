@@ -254,6 +254,8 @@ def main():
     parser.add_argument("--tune_epochs", type=int, default=5, help="Epochs per trial")
     parser.add_argument("--resume", type=str, default=None, metavar="CKPT",
                         help="Resume training from checkpoint (loads weights, uses low LR cosine decay)")
+    parser.add_argument("--merge_val", action="store_true",
+                        help="Merge val_data into training pool (final submission: train on all labeled data)")
     args = parser.parse_args()
 
     # Device
@@ -268,6 +270,7 @@ def main():
         Path(args.data), batch_size=args.batch_size, return_train_ds=True,
         augment_paths=args.augment,
         val_path=Path(args.val_data) if args.val_data else None,
+        merge_val=args.merge_val,
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  "
           f"Test: {len(test_loader.dataset)}")
