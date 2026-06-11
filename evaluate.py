@@ -155,7 +155,7 @@ def main():
     print(f"{split_name} samples: {len(eval_loader.dataset)}")
 
     model = ESGMultiTaskModel().to(device)
-    model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    model.load_state_dict(torch.load(args.checkpoint, map_location=device), strict=False)
     print(f"Loaded checkpoint: {args.checkpoint}")
 
     # Collect predictions
@@ -164,7 +164,7 @@ def main():
     all_golds = {t: [] for t in config.TASK_NAMES}
 
     with torch.no_grad():
-        for input_ids, attention_mask, labels, _span, _kw in eval_loader:
+        for input_ids, attention_mask, labels, _span, _kw, _tm in eval_loader:
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
             logits = model(input_ids, attention_mask)
