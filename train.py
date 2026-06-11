@@ -54,6 +54,7 @@ def build_criteria(train_ds, device) -> dict:
         # Extra boost for hard minority classes that balanced alone can't fix
         if task == "clarity":
             weights[config.CLARITY_MAP["Not Clear"]] *= 2.0
+            weights[config.CLARITY_MAP["Misleading"]] = 0.0  # skip Misleading
         if task == "evidence":
             weights[config.EVIDENCE_MAP["No"]] *= 1.5
         weight_tensor = torch.tensor(weights, dtype=torch.float).to(device)
