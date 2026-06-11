@@ -51,6 +51,11 @@ def build_criteria(train_ds, device) -> dict:
             present_weights = compute_class_weight("balanced", classes=present, y=valid)
             for cls, w in zip(present, present_weights):
                 weights[cls] = w
+        # Extra boost for hard minority classes that balanced alone can't fix
+        if task == "clarity":
+            weights[config.CLARITY_MAP["Not Clear"]] *= 2.0
+        if task == "evidence":
+            weights[config.EVIDENCE_MAP["No"]] *= 1.5
         weight_tensor = torch.tensor(weights, dtype=torch.float).to(device)
         criteria[task] = nn.CrossEntropyLoss(
             weight=weight_tensor, ignore_index=config.IGNORE_INDEX
