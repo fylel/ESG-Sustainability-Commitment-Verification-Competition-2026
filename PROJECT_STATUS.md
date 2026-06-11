@@ -159,6 +159,16 @@ for f in [
 # 4. 安裝套件
 !pip install transformers torch scikit-learn tensorboard tqdm matplotlib optuna -q
 
+# 5-pre. 開關 temporal aux（每次訓練前視需求執行）
+# USE_TEMPORAL_AUX = True  → 啟用；False → 停用
+import re
+with open('/content/translation-transformer/configs/config.py', 'r') as f:
+    txt = f.read()
+txt = re.sub(r'USE_TEMPORAL_AUX = (True|False)', 'USE_TEMPORAL_AUX = True', txt)
+with open('/content/translation-transformer/configs/config.py', 'w') as f:
+    f.write(txt)
+print("done")
+
 # 5a. 全新訓練（第一次 or 資料有大幅變動）
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
@@ -175,6 +185,11 @@ for f in [
 
 # 5b. 繼續訓練（從現有 checkpoint 接續，用較低 LR）
 # 先把上次存的 .pt 複製到 /content/best.pt，再執行：
+import shutil, glob
+pts = sorted(glob.glob('/content/drive/MyDrive/esg_data/best_*.pt'))
+shutil.copy(pts[-1], '/content/best.pt')
+print("複製完成:", pts[-1])
+
 %cd /content/translation-transformer
 !python train.py --data data/raw/vpesg_4k_train_1000.json \
   --val_data data/raw/vpesg4k_val_1000.json \
