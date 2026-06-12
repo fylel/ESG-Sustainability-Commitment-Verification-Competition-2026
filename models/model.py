@@ -22,6 +22,7 @@ from transformers import AutoModel
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from configs import config
+from utils.text_clean import build_tokenizer
 
 
 class TaskHead(nn.Module):
@@ -94,6 +95,12 @@ class ESGMultiTaskModel(nn.Module):
     ):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(pretrained)
+
+        # Resize embeddings to fit the ESG domain tokens added to the tokenizer.
+        # Must use the SAME shared tokenizer as the dataset so vocab sizes match
+        # (and so checkpoints stay shape-compatible between train/submit).
+        if config.USE_DOMAIN_TOKENS:
+            self.encoder.resize_token_embeddings(len(build_tokenizer()))
 
         self.heads = nn.ModuleDict({
             task: TaskHead(hidden_dim, n_cls, dropout)

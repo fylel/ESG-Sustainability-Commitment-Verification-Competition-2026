@@ -68,6 +68,16 @@ MAX_SEQ_LEN = 256
 HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.2
 
+# ─── Text Preprocessing (ported from official baseline notebook) ──────
+# Stage 1: NFKC + PDF-noise strip + regulatory term normalisation
+USE_TEXT_CLEANING = True
+# Stage 2: replace company / ticker mentions with 某公司 / 某代號
+#          (prevents memorising company-specific patterns → better test generalisation)
+USE_COMPANY_MASK = True
+# Stage 3: add ESG framework identifiers (IFRS S2, GRI 305, TCFD …) as single tokens.
+#          When True, model.resize_token_embeddings is called to match the new vocab.
+USE_DOMAIN_TOKENS = True
+
 # ─── Training ─────────────────────────────────────────────────────────
 EPOCHS = 50
 BATCH_SIZE = 16

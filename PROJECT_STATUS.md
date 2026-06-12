@@ -45,6 +45,50 @@ raw data → BERT (hfl/chinese-macbert-base)
 
 ---
 
+## 文字前處理（移植自官方 baseline notebook 07_roberta_large）
+
+集中於 `utils/text_clean.py`，三個階段各由 `configs/config.py` 的 flag 控制，預設**全開**。
+
+| 階段 | Flag | 內容 | 解決的問題 |
+|------|------|------|-----------|
+| 1. 文字清洗 | `USE_TEXT_CLEANING` | NFKC 正規化、去除 PDF 雜訊字元（nbsp/zero-width/BOM/全形空白）、壓縮空白；`GRI 305`/`ISO 14064`/`IFRS S2`/`CO2e`/`tCO2e` 等法規詞標準化 | PDF 抽取雜訊、同一框架詞多種寫法 |
+| 2. 公司遮蓋 | `USE_COMPANY_MASK` | 中文公司名（科技/電子/金控/控股…22 種後綴）→ `某公司`；股票代號（4 碼數字）→ `某代號` | 防止模型記憶公司專屬模式，提升對**測試集新公司**的泛化 |
+| 3. 專有詞 tokenizer | `USE_DOMAIN_TOKENS` | 21 個 ESG 框架詞（IFRS S1/S2、GRI 302/305/306/401/403、ISO 14064/14067/14001/45001/50001、SASB、TCFD、ISSB、SBTi、RE100、CBAM、CO2e、tCO2e）加入 tokenizer，並 `resize_token_embeddings` | 框架詞不被拆成零碎 subword，保留語意 |
+
+### 關鍵設計決策
+
+**1. 清洗對 text / promise_string / evidence_string 三者一致套用**
+- span aux 任務靠 `text.find(promise_string)` 定位，若只清洗 text 不清洗 span 會找不到 → span 標籤全變 -1
+- 公司 alias 從**清洗後的完整 text** 抽出一次，再同時套用到三者，確保遮蓋後 span 仍可被 find
+- 驗證：raw 對齊率 71.9% → 清洗+遮蓋後 71.4%（僅掉 5 筆，那 28% 失敗是資料本身 promise_string 未逐字出現，非前處理造成）
+
+**2. 公司遮蓋用 regex 直接抽中文名，非 notebook 的全域 alias_map**
+- notebook 從訓練公司建 alias_map，但**測試集是不同公司** → 用全域 map 會漏掉測試公司
+- 改成每筆樣本即時用 regex（公司後綴模式）抽中文名 + 樣本的 ticker 欄位，這樣測試集新公司也能被遮蓋，才真正提升泛化
+- 只用高精準度的「後綴模式」遮蓋（避開 notebook 那些低精準度的動詞模式如「致力/承諾/為/以」，那些是給 alias 挖掘用、直接拿來遮蓋會破壞正常文字）
+
+**3. transformers 改延遲載入（lazy import）**
+- 清洗/遮蓋邏輯純 Python，與 transformers 解耦 → 可離線單元測試
+- 只有 `build_tokenizer()` 內部才 import transformers
+
+**4. 共用 tokenizer 確保 train/submit checkpoint 形狀一致**
+- `build_tokenizer()` 為 cached 單例，dataset 與 model 共用
+- model `__init__` 自動 `resize_token_embeddings(len(build_tokenizer()))`，訓練與推論的 embedding vocab size 永遠對齊，checkpoint 不會 shape mismatch
+
+### 改動檔案
+
+| 檔案 | 改動 |
+|------|------|
+| `utils/text_clean.py` | **新檔**：清洗/正規化/遮蓋/tokenizer builder |
+| `configs/config.py` | 新增 3 個 flag（預設全開）|
+| `utils/dataset.py` | `ESGDataset` 對 text+span 一致前處理；改用 `build_tokenizer()` |
+| `models/model.py` | encoder 自動 `resize_token_embeddings` |
+| `submit.py` | 測試文字套用相同清洗+遮蓋；改用 `build_tokenizer()` |
+
+> ⚠ 此前處理改變了輸入分布，**舊 checkpoint 與新 pipeline 不相容**（domain tokens 改了 vocab size），需從零重訓或在開啟 flag 的狀態下重新訓練後再提交。
+
+---
+
 ## 損失函數
 
 ```
@@ -173,6 +217,23 @@ txt = re.sub(r'USE_TEMPORAL_AUX = (True|False)', 'USE_TEMPORAL_AUX = True', txt)
 with open('/content/translation-transformer/configs/config.py', 'w') as f:
     f.write(txt)
 print("done")
+
+# 5-pre2. 開關文字前處理（清洗 / 公司遮蓋 / 專有詞 tokenizer）
+# 三個都設 True = 啟用全套前處理（建議）；設 False = 還原 raw 當對照組
+# ⚠ USE_DOMAIN_TOKENS 會改 vocab size → 切換後舊 checkpoint 不相容，需重訓
+import re
+flags = {
+    'USE_TEXT_CLEANING': True,   # NFKC + PDF 雜訊清除 + 法規詞標準化
+    'USE_COMPANY_MASK':  True,   # 公司名→某公司、代號→某代號
+    'USE_DOMAIN_TOKENS': True,   # 21 個 ESG 框架詞加入 tokenizer
+}
+with open('/content/translation-transformer/configs/config.py', 'r') as f:
+    txt = f.read()
+for name, val in flags.items():
+    txt = re.sub(rf'{name} = (True|False)', f'{name} = {val}', txt)
+with open('/content/translation-transformer/configs/config.py', 'w') as f:
+    f.write(txt)
+print("前處理 flag 設定：", flags)
 
 # 5a. 全新訓練（第一次 or 資料有大幅變動）
 %cd /content/translation-transformer

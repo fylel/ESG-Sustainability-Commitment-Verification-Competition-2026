@@ -18,6 +18,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from configs import config
+from utils.text_clean import preprocess_sample, build_tokenizer
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -193,11 +194,18 @@ class ESGDataset(Dataset):
             text = normalise_field(s.get(config.TEXT_FIELD, ""))
             if not text:
                 continue
+            promise = normalise_field(s.get("promise_string", ""))
+            evidence = normalise_field(s.get("evidence_string", ""))
+            # Clean + company-mask text and span strings together so that
+            # text.find(span) used by the span-aux task still resolves.
+            text, promise, evidence = preprocess_sample(text, promise, evidence, s)
+            if not text:
+                continue
             self.samples.append(s)
             self.texts.append(text)
             self.labels.append(encode_labels(s))
-            self.promise_strings.append(normalise_field(s.get("promise_string", "")))
-            self.evidence_strings.append(normalise_field(s.get("evidence_string", "")))
+            self.promise_strings.append(promise)
+            self.evidence_strings.append(evidence)
 
     def __len__(self) -> int:
         return len(self.texts)
@@ -345,7 +353,7 @@ def get_dataloaders(
               performed — useful for final submission training.
     augment_paths: augmented samples merged into training data.
     """
-    tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
+    tokenizer = build_tokenizer()  # shared tokenizer (+ ESG domain tokens)
     samples = load_raw_samples(data_path, config.MAX_SAMPLES)
 
     if augment_paths:

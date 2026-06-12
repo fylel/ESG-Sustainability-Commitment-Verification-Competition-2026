@@ -16,13 +16,13 @@ import csv
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer
 
 import sys, os
 sys.path.append(os.path.dirname(__file__))
 from configs import config
 from models.model import ESGMultiTaskModel
 from utils.dataset import load_raw_samples, normalise_field
+from utils.text_clean import build_tokenizer, preprocess_text
 
 
 # ── Decode maps (int → competition label string) ─────────────────────────
@@ -99,7 +99,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    tokenizer = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
+    tokenizer = build_tokenizer()  # shared tokenizer (+ ESG domain tokens)
     model = ESGMultiTaskModel().to(device)
     model.load_state_dict(
         torch.load(args.checkpoint, map_location=device), strict=False
@@ -115,7 +115,9 @@ def main():
 
     for i in range(0, len(samples), args.batch_size):
         batch = samples[i : i + args.batch_size]
-        texts = [normalise_field(s.get(config.TEXT_FIELD, "")) for s in batch]
+        # Same cleaning + company masking as training (per-sample for masking).
+        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s)
+                 for s in batch]
         for j, s in enumerate(batch):
             all_ids.append(s.get("id", 12001 + i + j))
 
