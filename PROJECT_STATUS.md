@@ -344,6 +344,88 @@ for col in ['promise_status','verification_timeline','evidence_status','evidence
 
 ---
 
+## 任務專精 Ensemble（4 模型，每模型專精一個子任務）
+
+### 動機
+單一 multi-task 模型在測試集只有 **0.5451**，四個子任務互相牽制。改用 4 個模型，
+每個把 96% 的 loss 權重壓在單一任務上，其餘三任務各分 ~1.3%（保留少量訊號當正則化，
+並維持 span-aux 0.15 對 encoder 的穩定作用）。提交時每個子任務只取「該任務專家」的預測。
+
+- **前處理全關**：`USE_TEXT_CLEANING / USE_COMPANY_MASK / USE_DOMAIN_TOKENS = False`
+  （前處理曾造成 0.5451 → 0.5095 退步，這次先用 raw 當乾淨對照）。
+- **驗證策略**：用 5c（`--merge_val`，3,645 筆全量）。獨立基準就是 leaderboard 的 0.5451，
+  提交後直接比較即可，不需內部獨立 val。
+- **早停指標**：`--focus_task` 啟用後，best checkpoint 改用「該任務 macro-F1」挑選
+  （綜合加權分數在此無意義，因為模型故意練爛其他三任務）。
+
+### 關鍵改動
+| 檔案 | 改動 |
+|------|------|
+| `configs/config.py` | 三個前處理 flag 預設改 `False` |
+| `train.py` | 新增 `--focus_task` / `--focus_weight`；修掉 `save_path` 寫死 `/content/best.pt` 的 bug（改用 `--save_path`）；focus 模式用該任務 macro-F1 早停 |
+| `submit_ensemble.py` | 新檔：載入 4 個 checkpoint，每任務取對應專家的 head，再套競賽依存規則 |
+
+### Colab SOP — 訓練 4 個專家（5c 全量）
+
+```python
+# 0. 確認前處理全關（task-specialized ensemble 用 raw）
+import re
+with open('/content/translation-transformer/configs/config.py') as f:
+    txt = f.read()
+for name in ['USE_TEXT_CLEANING', 'USE_COMPANY_MASK', 'USE_DOMAIN_TOKENS']:
+    txt = re.sub(rf'{name} = (True|False)', f'{name} = False', txt)
+with open('/content/translation-transformer/configs/config.py', 'w') as f:
+    f.write(txt)
+print("前處理已全關")
+
+# 1. 依序訓練 4 個專家（每個 save 到不同檔名，5c merge_val 全量）
+%cd /content/translation-transformer
+AUG = """data/raw/vpesg_4k_train_1000_synthetic_only.json \
+         data/raw/aug_timeline_within2.json data/raw/aug_timeline_between_clear.json \
+         data/raw/aug_timeline_between_mixed.json data/raw/aug_timeline_morethan.json \
+         data/raw/aug_commitment_no.json data/raw/aug_evidence_no.json \
+         data/raw/aug_quality_misleading.json data/raw/aug_quality_notclear.json"""
+
+for task in ['commitment', 'evidence', 'clarity', 'timeline']:
+    print(f"\n{'='*30} 訓練 {task} 專家 {'='*30}")
+    !python train.py --data data/raw/vpesg_4k_train_1000.json \
+      --val_data data/raw/vpesg4k_val_1000.json --merge_val \
+      --augment {AUG} \
+      --focus_task {task} --focus_weight 0.96 \
+      --save_path /content/best_{task}.pt \
+      --epochs 40 \
+      2>&1 | tee /content/train_{task}.log
+
+# 2. 存 4 個 checkpoint 到 Drive
+import shutil
+for task in ['commitment', 'evidence', 'clarity', 'timeline']:
+    shutil.copy(f'/content/best_{task}.pt',
+                f'/content/drive/MyDrive/esg_data/best_{task}.pt')
+print("4 個專家已存到 Drive")
+
+# 3. 產生 ensemble 提交 CSV
+!python submit_ensemble.py \
+  --data data/raw/vpesg4k_test_2000.json \
+  --commitment_ckpt /content/best_commitment.pt \
+  --evidence_ckpt   /content/best_evidence.pt \
+  --clarity_ckpt    /content/best_clarity.pt \
+  --timeline_ckpt   /content/best_timeline.pt \
+  --output /content/submission_ensemble.csv
+
+import shutil, pandas as pd
+shutil.copy('/content/submission_ensemble.csv',
+            '/content/drive/MyDrive/esg_data/submission_ensemble.csv')
+df = pd.read_csv('/content/submission_ensemble.csv')
+print(f"Total rows: {len(df)}  (should be 2000)")
+for col in ['promise_status','verification_timeline','evidence_status','evidence_quality']:
+    print(f"  {col}:", df[col].value_counts().to_dict())
+```
+
+> 對照：跟單模型 0.5451 比。若 ensemble 更高 → 專精策略有效；若更低 → 子任務互相牽制其實是
+> 有益的隱性正則化，回到單模型。
+
+---
+
 ## 資料分布：增強前 vs 增強後
 
 總樣本數：原始 1,000 筆 → 增強後 **1,742 筆**（+742）

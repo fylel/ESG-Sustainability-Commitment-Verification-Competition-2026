@@ -69,14 +69,17 @@ HIDDEN_DIM = 768          # must match pretrained encoder
 CLASSIFIER_DROPOUT = 0.2
 
 # ─── Text Preprocessing (ported from official baseline notebook) ──────
+# NOTE: all three turned OFF — the preprocessing caused a competition
+# regression (0.5451 → 0.5095). Kept here as toggles for ablation; the
+# task-specialized ensemble runs with raw text (no cleaning / mask / tokens).
 # Stage 1: NFKC + PDF-noise strip + regulatory term normalisation
-USE_TEXT_CLEANING = True
+USE_TEXT_CLEANING = False
 # Stage 2: replace company / ticker mentions with 某公司 / 某代號
 #          (prevents memorising company-specific patterns → better test generalisation)
-USE_COMPANY_MASK = True
+USE_COMPANY_MASK = False
 # Stage 3: add ESG framework identifiers (IFRS S2, GRI 305, TCFD …) as single tokens.
 #          When True, model.resize_token_embeddings is called to match the new vocab.
-USE_DOMAIN_TOKENS = True
+USE_DOMAIN_TOKENS = False
 
 # ─── Training ─────────────────────────────────────────────────────────
 EPOCHS = 50

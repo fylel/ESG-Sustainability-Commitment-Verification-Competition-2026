@@ -256,7 +256,23 @@ def main():
                         help="Resume training from checkpoint (loads weights, uses low LR cosine decay)")
     parser.add_argument("--merge_val", action="store_true",
                         help="Merge val_data into training pool (final submission: train on all labeled data)")
+    parser.add_argument("--focus_task", type=str, default=None, choices=config.TASK_NAMES,
+                        help="Task-specialized training: heavily weight this one task's loss "
+                             "and select the best checkpoint by THIS task's macro-F1.")
+    parser.add_argument("--focus_weight", type=float, default=0.96,
+                        help="Loss weight for the focus task (others split the remainder evenly).")
     args = parser.parse_args()
+
+    # ── Task-specialized loss weighting ───────────────────────────────
+    # When --focus_task is set, override config.TASK_LOSS_WEIGHTS so one task
+    # dominates the loss. Used to build a 4-model specialized ensemble where
+    # each model is an expert on a single subtask.
+    if args.focus_task:
+        others = [t for t in config.TASK_NAMES if t != args.focus_task]
+        rest = (1.0 - args.focus_weight) / len(others)
+        config.TASK_LOSS_WEIGHTS = {args.focus_task: args.focus_weight}
+        config.TASK_LOSS_WEIGHTS.update({t: rest for t in others})
+        print(f"[focus] task-specialized on '{args.focus_task}': {config.TASK_LOSS_WEIGHTS}")
 
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -336,7 +352,7 @@ def main():
 
     # Training loop
     best_val_score = 0.0
-    save_path = Path("/content/best.pt")
+    save_path = Path(args.save_path)
     patience = config.EARLY_STOPPING_PATIENCE
     no_improve = 0
 
@@ -346,7 +362,13 @@ def main():
         train_loss = train_one_epoch(model, train_loader, device, optimizer, criteria)
         val_loss, val_metrics, val_preds, val_golds = evaluate(model, val_loader, device, criteria)
         val_results = evaluate_detailed(val_preds, val_golds)
-        val_score = val_results["final_weighted_score"]
+        # In task-specialized mode, select the checkpoint by the FOCUS task's
+        # macro-F1 — the combined weighted score is meaningless here since the
+        # model deliberately under-trains the other three tasks.
+        if args.focus_task:
+            val_score = val_results[args.focus_task]["macro_f1"]
+        else:
+            val_score = val_results["final_weighted_score"]
 
         scheduler.step()
 
@@ -358,7 +380,8 @@ def main():
             writer.add_scalar(f"acc/{task}", val_metrics[task]["accuracy"], epoch)
             writer.add_scalar(f"f1/{task}", val_metrics[task]["f1_macro"], epoch)
 
-        print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val score: {val_score:.5f}")
+        score_label = f"{args.focus_task} macroF1" if args.focus_task else "weighted score"
+        print(f"Train loss: {train_loss:.4f}  |  Val loss: {val_loss:.4f}  |  Val {score_label}: {val_score:.5f}")
         print_metrics(val_metrics)
 
         # Save best / early stopping (based on val score = competition metric)
