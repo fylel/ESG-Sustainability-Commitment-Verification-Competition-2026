@@ -34,7 +34,7 @@ sys.path.append(os.path.dirname(__file__))
 from configs import config
 from models.model import ESGMultiTaskModel
 from utils.dataset import load_raw_samples, normalise_field
-from utils.text_clean import build_tokenizer, preprocess_text
+from utils.text_clean import build_tokenizer, preprocess_text, build_company_alias_map
 # Reuse decode maps + competition rule logic from the single-model script.
 from submit import DECODE, _apply_rules
 
@@ -54,7 +54,7 @@ def infer_task_logits(ckpt_path, task, samples, tokenizer, device, batch_size):
     chunks = []
     for i in range(0, len(samples), batch_size):
         batch = samples[i : i + batch_size]
-        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s)
+        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s, alias_map)
                  for s in batch]
         enc = tokenizer(
             texts,
@@ -89,10 +89,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    tokenizer = build_tokenizer()  # shared tokenizer (raw when domain tokens off)
+    tokenizer = build_tokenizer()
 
     samples = load_raw_samples(Path(args.data), max_samples=100_000)
     print(f"Test samples: {len(samples)}")
+    alias_map = build_company_alias_map(samples) if config.USE_COMPANY_MASK else None
+    if alias_map:
+        print(f"[alias_map] built for {len(alias_map)} companies")
     all_ids = [s.get("id", 12001 + i) for i, s in enumerate(samples)]
 
     # Each task's logits come from its own expert checkpoint.

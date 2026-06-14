@@ -76,21 +76,23 @@ def normalize_regulatory_text(text: Optional[str]) -> str:
 COMPANY_MASK_TOKEN = "某公司"
 TICKER_MASK_TOKEN = "某代號"
 
-# High-precision: a Chinese name immediately followed by a company-type suffix.
-# (The notebook's lower-precision verb patterns are only for alias mining; using
-#  them to mask directly would corrupt ordinary text, so we keep this one.)
-_COMPANY_SUFFIXES = (
-    "科技電子超商人壽金控控股投控水泥電信航運銀行集團企業工業"
-    "材料精密半導體電腦塑膠化學製造儲能"
-)
-COMPANY_NAME_PATTERN = re.compile(
-    r"[一-鿿]{2,10}(?:"
-    + "|".join(
-        ("科技", "電子", "超商", "人壽", "金控", "控股", "投控", "水泥",
-         "電信", "航運", "銀行", "集團", "企業", "工業", "材料", "精密",
-         "半導體", "電腦", "塑膠", "化學", "製造", "儲能")
-    )
-    + ")"
+# Suffix patterns (high precision) + verb patterns (broader reach for alias mining).
+# Verb patterns are only used for alias MINING (build_company_alias_map), not for
+# direct masking, which keeps false-positive masking low.
+COMPANY_NAME_PATTERNS = [
+    re.compile(r"([一-鿿]{2,10}(?:科技|電子|超商|人壽|金控|水泥|電信|航運|銀行|控股|投控|集團|企業|工業|材料|精密|半導體|電腦|塑膠|化學|製造|儲能))"),
+    re.compile(r"([一-鿿]{2,6})致力"),
+    re.compile(r"([一-鿿]{2,6})承諾"),
+    re.compile(r"([一-鿿]{2,6})重視"),
+    re.compile(r"([一-鿿]{2,6})積極"),
+    re.compile(r"([一-鿿]{2,6})持續"),
+    re.compile(r"([一-鿿]{2,6})為"),
+    re.compile(r"([一-鿿]{2,6})以"),
+]
+
+COMPANY_NAME_SUFFIXES = (
+    "科技", "電子", "超商", "人壽", "金控", "水泥", "電信", "航運", "銀行", "控股", "投控",
+    "集團", "企業", "工業", "材料", "精密", "半導體", "電腦", "塑膠", "化學", "製造", "儲能",
 )
 
 COMPANY_ALIAS_STOPWORDS = {
@@ -100,27 +102,92 @@ COMPANY_ALIAS_STOPWORDS = {
 }
 
 
-def extract_company_aliases(text: str, sample: dict) -> Set[str]:
-    """Per-sample alias set: known company/ticker fields + Chinese names in text.
+def extract_company_candidates_from_text(text: str) -> list:
+    """Extract candidate company names from the first 80 chars using all patterns.
 
-    Derived from the (already cleaned) text so the same set can mask text and
-    both span strings consistently. Works on unseen test companies too.
+    Only the leading 80 chars are scanned: company names almost always appear
+    near the start of a paragraph, and limiting the window reduces false positives
+    from verb patterns like 為/以.
     """
-    aliases: Set[str] = set()
+    snippet = str(text)[:80]
+    candidates = []
+    for pattern in COMPANY_NAME_PATTERNS:
+        for match in pattern.finditer(snippet):
+            candidate = match.group(1).strip("「」『』()（） ")
+            if 2 <= len(candidate) <= 10 and candidate not in COMPANY_ALIAS_STOPWORDS:
+                candidates.append(candidate)
+    return candidates
 
-    comp = str(sample.get("company", "")).strip()
-    if comp and not comp.isdigit() and len(comp) >= 2:
-        aliases.add(comp)
 
-    ticker = str(sample.get("ticker", "")).strip()
-    if ticker.isdigit() and len(ticker) >= 3:
-        aliases.add(ticker)
+def is_company_like_candidate(candidate: str, count: int) -> bool:
+    """Accept a candidate alias only when it passes count threshold + structural check."""
+    if count < 2:
+        return False
+    if candidate.endswith(COMPANY_NAME_SUFFIXES):
+        return True
+    if 2 <= len(candidate) <= 4:
+        return True
+    return False
 
-    for name in COMPANY_NAME_PATTERN.findall(text):
-        if len(name) >= 3 and name not in COMPANY_ALIAS_STOPWORDS:
-            aliases.add(name)
 
-    return aliases
+def build_company_alias_map(samples: list) -> dict:
+    """Build a global alias map from a list of sample dicts (aligned with official notebook).
+
+    Groups samples by the 'company' field, mines alias candidates across all
+    texts for each company, applies a count≥2 threshold, then assembles the
+    final alias list (company name variants + tickers + derived Chinese aliases).
+
+    Pass the result to preprocess_sample / preprocess_text as alias_map so
+    every sample in a dataset is masked consistently.
+    """
+    from collections import Counter, defaultdict
+
+    company_groups: dict = defaultdict(list)
+    for s in samples:
+        key = str(s.get("company", "")).strip()
+        if key and key.lower() != "nan":
+            company_groups[key].append(s)
+
+    alias_map: dict = {}
+    for company_key, group in company_groups.items():
+        counter: Counter = Counter()
+        for s in group:
+            # Normalize first (same as official: candidate extraction runs on
+            # data_normalized_text, not raw text).
+            norm = normalize_regulatory_text(str(s.get(config.TEXT_FIELD, "")))
+            for candidate in extract_company_candidates_from_text(norm):
+                counter[candidate] += 1
+
+        derived = [
+            c for c, cnt in counter.most_common(5)
+            if is_company_like_candidate(c, cnt)
+        ]
+
+        aliases: list = []
+        for variant in (company_key, company_key.lower(), company_key.upper()):
+            v = variant.strip()
+            if v and v.lower() != "nan":
+                aliases.append(v)
+
+        tickers: set = set()
+        for s in group:
+            t = str(s.get("ticker", "")).strip()
+            if t and t.lower() != "nan":
+                tickers.add(t)
+        aliases.extend(sorted(tickers))
+        aliases.extend(derived)
+
+        # Dedup, longest first (so longer aliases are replaced before shorter substrings)
+        seen: set = set()
+        cleaned: list = []
+        for item in sorted(aliases, key=len, reverse=True):
+            if item and item not in seen:
+                seen.add(item)
+                cleaned.append(item)
+
+        alias_map[company_key] = cleaned
+
+    return alias_map
 
 
 def mask_with_aliases(text: str, aliases: Set[str]) -> str:
@@ -137,12 +204,20 @@ def mask_with_aliases(text: str, aliases: Set[str]) -> str:
 # Combined sample preprocessing (text + spans, kept consistent)
 # ──────────────────────────────────────────────────────────────────────
 
-def preprocess_sample(text: str, promise: str, evidence: str, sample: dict):
+def preprocess_sample(
+    text: str,
+    promise: str,
+    evidence: str,
+    sample: dict,
+    alias_map: Optional[dict] = None,
+):
     """Apply cleaning + masking to text and both span strings identically.
 
-    Returns (text, promise, evidence). Aliases are derived once from the
-    cleaned full text and applied to all three so that text.find(span) used by
-    the span-aux task still resolves after masking.
+    Returns (text, promise, evidence). When alias_map is provided (built once
+    from all training samples via build_company_alias_map), use it to look up
+    aliases by company key — this is the official notebook's approach and gives
+    better precision than per-sample extraction. Falls back to looking up only
+    company/ticker fields from sample when alias_map is None.
     """
     if config.USE_TEXT_CLEANING:
         text = normalize_regulatory_text(text)
@@ -150,7 +225,19 @@ def preprocess_sample(text: str, promise: str, evidence: str, sample: dict):
         evidence = normalize_regulatory_text(evidence) if evidence else evidence
 
     if config.USE_COMPANY_MASK:
-        aliases = extract_company_aliases(text, sample)
+        if alias_map is not None:
+            company_key = str(sample.get("company", "")).strip()
+            aliases: Set[str] = set(alias_map.get(company_key, []))
+        else:
+            # Fallback: use company/ticker fields only (no verb-pattern mining)
+            aliases = set()
+            comp = str(sample.get("company", "")).strip()
+            if comp and comp.lower() != "nan" and len(comp) >= 2:
+                aliases.add(comp)
+            ticker = str(sample.get("ticker", "")).strip()
+            if ticker and ticker.lower() != "nan":
+                aliases.add(ticker)
+
         if aliases:
             text = mask_with_aliases(text, aliases)
             promise = mask_with_aliases(promise, aliases) if promise else promise
@@ -159,12 +246,29 @@ def preprocess_sample(text: str, promise: str, evidence: str, sample: dict):
     return text, promise, evidence
 
 
-def preprocess_text(text: str, sample: Optional[dict] = None) -> str:
-    """Clean (+ mask) a single text. Used at inference time in submit.py."""
+def preprocess_text(
+    text: str,
+    sample: Optional[dict] = None,
+    alias_map: Optional[dict] = None,
+) -> str:
+    """Clean (+ mask) a single text. Used at inference time in submit.py.
+
+    Pass alias_map (built from training or test samples) for consistent masking.
+    """
     if config.USE_TEXT_CLEANING:
         text = normalize_regulatory_text(text)
     if config.USE_COMPANY_MASK and sample is not None:
-        aliases = extract_company_aliases(text, sample)
+        if alias_map is not None:
+            company_key = str(sample.get("company", "")).strip()
+            aliases: Set[str] = set(alias_map.get(company_key, []))
+        else:
+            aliases = set()
+            comp = str(sample.get("company", "")).strip()
+            if comp and comp.lower() != "nan" and len(comp) >= 2:
+                aliases.add(comp)
+            ticker = str(sample.get("ticker", "")).strip()
+            if ticker and ticker.lower() != "nan":
+                aliases.add(ticker)
         if aliases:
             text = mask_with_aliases(text, aliases)
     return text

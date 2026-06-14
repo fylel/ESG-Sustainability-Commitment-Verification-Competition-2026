@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(__file__))
 from configs import config
 from models.model import ESGMultiTaskModel
 from utils.dataset import load_raw_samples, normalise_field
-from utils.text_clean import build_tokenizer, preprocess_text
+from utils.text_clean import build_tokenizer, preprocess_text, build_company_alias_map
 
 
 # ── Decode maps (int → competition label string) ─────────────────────────
@@ -110,13 +110,17 @@ def main():
     samples = load_raw_samples(Path(args.data), max_samples=100_000)
     print(f"Test samples: {len(samples)}")
 
+    # Build alias map from test samples (same company/ticker fields available at test time)
+    alias_map = build_company_alias_map(samples) if config.USE_COMPANY_MASK else None
+    if alias_map:
+        print(f"[alias_map] built for {len(alias_map)} companies")
+
     all_logits = {t: [] for t in config.TASK_NAMES}
     all_ids: list = []
 
     for i in range(0, len(samples), args.batch_size):
         batch = samples[i : i + args.batch_size]
-        # Same cleaning + company masking as training (per-sample for masking).
-        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s)
+        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s, alias_map)
                  for s in batch]
         for j, s in enumerate(batch):
             all_ids.append(s.get("id", 12001 + i + j))
