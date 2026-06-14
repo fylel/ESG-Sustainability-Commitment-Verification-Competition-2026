@@ -18,7 +18,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from configs import config
-from utils.text_clean import preprocess_sample, build_tokenizer, build_company_alias_map
+from utils.text_clean import (
+    preprocess_sample, build_tokenizer, build_company_alias_map, build_hybrid_feature_map,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -181,6 +183,7 @@ class ESGDataset(Dataset):
         tokenizer: PreTrainedTokenizerBase,
         max_seq_len: int = config.MAX_SEQ_LEN,
         alias_map: Optional[dict] = None,
+        hybrid_map: Optional[dict] = None,
     ):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
@@ -197,9 +200,9 @@ class ESGDataset(Dataset):
                 continue
             promise = normalise_field(s.get("promise_string", ""))
             evidence = normalise_field(s.get("evidence_string", ""))
-            # Clean + company-mask text and span strings together so that
-            # text.find(span) used by the span-aux task still resolves.
-            text, promise, evidence = preprocess_sample(text, promise, evidence, s, alias_map)
+            text, promise, evidence = preprocess_sample(
+                text, promise, evidence, s, alias_map, hybrid_map
+            )
             if not text:
                 continue
             self.samples.append(s)
@@ -363,15 +366,22 @@ def get_dataloaders(
             samples.extend(aug)
         print(f"Total samples after augmentation: {len(samples)}")
 
+    # Build hybrid feature map from CSV (train/val features; synthetic gets rule-based fallback)
+    hybrid_map = (
+        build_hybrid_feature_map(config.HYBRID_TRAIN_FEAT_CSV)
+        if config.USE_HYBRID_FEATURES else None
+    )
+    if hybrid_map:
+        print(f"[hybrid_map] loaded {len(hybrid_map)} entries from {config.HYBRID_TRAIN_FEAT_CSV}")
+
     if val_path is not None and not merge_val:
         # External val set: train on everything, validate on separate file
         val_samples_raw = load_raw_samples(Path(val_path), max_samples=100_000)
-        # Build alias map from training samples only (val is held-out)
         alias_map = build_company_alias_map(samples) if config.USE_COMPANY_MASK else None
         if alias_map:
             print(f"[alias_map] built for {len(alias_map)} companies from {len(samples)} train samples")
-        train_ds = ESGDataset(samples,         tokenizer, alias_map=alias_map)
-        val_ds   = ESGDataset(val_samples_raw, tokenizer, alias_map=alias_map)
+        train_ds = ESGDataset(samples,         tokenizer, alias_map=alias_map, hybrid_map=hybrid_map)
+        val_ds   = ESGDataset(val_samples_raw, tokenizer, alias_map=alias_map, hybrid_map=hybrid_map)
         test_ds  = ESGDataset([],              tokenizer)
         print(f"External val set: {len(val_ds)} samples from {val_path}")
     else:
@@ -380,11 +390,10 @@ def get_dataloaders(
             samples.extend(val_samples_raw)
             print(f"merge_val: added {len(val_samples_raw)} val samples to training pool "
                   f"(total {len(samples)})")
-        # Build alias map from the full pool before splitting
         alias_map = build_company_alias_map(samples) if config.USE_COMPANY_MASK else None
         if alias_map:
             print(f"[alias_map] built for {len(alias_map)} companies from {len(samples)} samples")
-        dataset = ESGDataset(samples, tokenizer, alias_map=alias_map)
+        dataset = ESGDataset(samples, tokenizer, alias_map=alias_map, hybrid_map=hybrid_map)
         strat_keys = [
             "_".join(str(lbl[t]) for t in config.TASK_NAMES)
             for lbl in dataset.labels
@@ -423,9 +432,12 @@ def get_dataloaders(
                     indices, test_size=val_ratio, random_state=seed
                 )
 
-        train_ds = ESGDataset([dataset.samples[i] for i in train_idx], tokenizer, alias_map=alias_map)
-        val_ds   = ESGDataset([dataset.samples[i] for i in val_idx],   tokenizer, alias_map=alias_map)
-        test_ds  = ESGDataset([dataset.samples[i] for i in test_idx],  tokenizer, alias_map=alias_map)
+        train_ds = ESGDataset([dataset.samples[i] for i in train_idx], tokenizer,
+                              alias_map=alias_map, hybrid_map=hybrid_map)
+        val_ds   = ESGDataset([dataset.samples[i] for i in val_idx],   tokenizer,
+                              alias_map=alias_map, hybrid_map=hybrid_map)
+        test_ds  = ESGDataset([dataset.samples[i] for i in test_idx],  tokenizer,
+                              alias_map=alias_map, hybrid_map=hybrid_map)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size)

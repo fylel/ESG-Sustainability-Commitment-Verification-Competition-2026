@@ -34,13 +34,15 @@ sys.path.append(os.path.dirname(__file__))
 from configs import config
 from models.model import ESGMultiTaskModel
 from utils.dataset import load_raw_samples, normalise_field
-from utils.text_clean import build_tokenizer, preprocess_text, build_company_alias_map
+from utils.text_clean import (
+    build_tokenizer, preprocess_text, build_company_alias_map, build_hybrid_feature_map,
+)
 # Reuse decode maps + competition rule logic from the single-model script.
 from submit import DECODE, _apply_rules
 
 
 @torch.no_grad()
-def infer_task_logits(ckpt_path, task, samples, tokenizer, device, batch_size):
+def infer_task_logits(ckpt_path, task, samples, tokenizer, device, batch_size, alias_map=None, hybrid_map=None):
     """Load one expert checkpoint, return its logits for a SINGLE task.
 
     Only that task's head is used; the model is freed before returning so the
@@ -54,7 +56,7 @@ def infer_task_logits(ckpt_path, task, samples, tokenizer, device, batch_size):
     chunks = []
     for i in range(0, len(samples), batch_size):
         batch = samples[i : i + batch_size]
-        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s, alias_map)
+        texts = [preprocess_text(normalise_field(s.get(config.TEXT_FIELD, "")), s, alias_map, hybrid_map)
                  for s in batch]
         enc = tokenizer(
             texts,
@@ -96,6 +98,9 @@ def main():
     alias_map = build_company_alias_map(samples) if config.USE_COMPANY_MASK else None
     if alias_map:
         print(f"[alias_map] built for {len(alias_map)} companies")
+    hybrid_map = build_hybrid_feature_map(config.HYBRID_TEST_FEAT_CSV) if config.USE_HYBRID_FEATURES else None
+    if hybrid_map:
+        print(f"[hybrid_map] loaded {len(hybrid_map)} test entries")
     all_ids = [s.get("id", 12001 + i) for i, s in enumerate(samples)]
 
     # Each task's logits come from its own expert checkpoint.
@@ -106,7 +111,8 @@ def main():
         "timeline":   args.timeline_ckpt,
     }
     all_logits = {
-        task: infer_task_logits(ckpt_for[task], task, samples, tokenizer, device, args.batch_size)
+        task: infer_task_logits(ckpt_for[task], task, samples, tokenizer, device, args.batch_size,
+                                alias_map=alias_map, hybrid_map=hybrid_map)
         for task in config.TASK_NAMES
     }
 

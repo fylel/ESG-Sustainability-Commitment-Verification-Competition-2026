@@ -7,6 +7,11 @@ Three stages, all gated by config flags so they can be toggled off:
   2. mask_company_mentions                         (USE_COMPANY_MASK)
   3. domain tokens added to the tokenizer          (USE_DOMAIN_TOKENS)
 
+Plus hybrid features (USE_HYBRID_FEATURES):
+  - feat_C / feat_E: rule-based (computed live for every sample)
+  - feat_A / feat_B / feat_D: loaded from GPT-4o CSV; default 0 for synthetic data
+  Injected as a 5-token prefix: [A=0][B=0][C=1][D=0][E=1]
+
 Cleaning + masking are applied identically to `data`, `promise_string`
 and `evidence_string` so that span-aux alignment (text.find(span)) survives.
 """
@@ -210,14 +215,14 @@ def preprocess_sample(
     evidence: str,
     sample: dict,
     alias_map: Optional[dict] = None,
+    hybrid_map: Optional[dict] = None,
 ):
     """Apply cleaning + masking to text and both span strings identically.
 
     Returns (text, promise, evidence). When alias_map is provided (built once
     from all training samples via build_company_alias_map), use it to look up
-    aliases by company key — this is the official notebook's approach and gives
-    better precision than per-sample extraction. Falls back to looking up only
-    company/ticker fields from sample when alias_map is None.
+    aliases by company key. hybrid_map (built via build_hybrid_feature_map)
+    injects a 5-feature prefix to the main text only (not spans).
     """
     if config.USE_TEXT_CLEANING:
         text = normalize_regulatory_text(text)
@@ -243,6 +248,12 @@ def preprocess_sample(
             promise = mask_with_aliases(promise, aliases) if promise else promise
             evidence = mask_with_aliases(evidence, aliases) if evidence else evidence
 
+    if config.USE_HYBRID_FEATURES:
+        sample_id = str(sample.get("id", ""))
+        feats = _resolve_hybrid_feats(text, sample_id, hybrid_map)
+        prefix = build_hybrid_prefix(feats)
+        text = prefix + text
+
     return text, promise, evidence
 
 
@@ -250,10 +261,12 @@ def preprocess_text(
     text: str,
     sample: Optional[dict] = None,
     alias_map: Optional[dict] = None,
+    hybrid_map: Optional[dict] = None,
 ) -> str:
     """Clean (+ mask) a single text. Used at inference time in submit.py.
 
     Pass alias_map (built from training or test samples) for consistent masking.
+    Pass hybrid_map (built via build_hybrid_feature_map) for hybrid feature prefix.
     """
     if config.USE_TEXT_CLEANING:
         text = normalize_regulatory_text(text)
@@ -271,7 +284,154 @@ def preprocess_text(
                 aliases.add(ticker)
         if aliases:
             text = mask_with_aliases(text, aliases)
+    if config.USE_HYBRID_FEATURES:
+        sample_id = str(sample.get("id", "")) if sample else ""
+        feats = _resolve_hybrid_feats(text, sample_id, hybrid_map)
+        prefix = build_hybrid_prefix(feats)
+        text = prefix + text
     return text
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Hybrid Features — rule-based (C/E) + GPT-4o CSV lookup (A/B/D)
+# ──────────────────────────────────────────────────────────────────────
+
+# feat_C: measurable signal (rule-based) — ported from official notebook Phase B-2
+_MEASURE_VALUE = r"(?:\d+(?:[,.]\d+)*(?:\.\d+)?|[零〇一二兩三四五六七八九十百千萬億兆壹貳參肆伍陸柒捌玖拾佰仟]+)"
+_MEASURE_CHINESE_NUM = r"""
+    數[十百千萬億兆]+ |
+    [零〇一二兩三四五六七八九壹貳參肆伍陸柒捌玖]+[十百千萬億兆拾佰仟]+[零〇一二兩三四五六七八九十百千萬億兆壹貳參肆伍陸柒捌玖拾佰仟]* |
+    [十拾][一二兩三四五六七八九壹貳參肆伍陸柒捌玖]+
+"""
+_MEASURE_RATIO = r"""
+    減半 |
+    [零〇一二兩三四五六七八九十百千萬億兆]+成 |
+    百分之[零〇一二兩三四五六七八九十百千萬億兆\d]+ |
+    千分之[零〇一二兩三四五六七八九十百千萬億兆\d]+ |
+    [零〇一二兩三四五六七八九十百千萬億兆\d]+分之[零〇一二兩三四五六七八九十百千萬億兆\d]+
+"""
+_MEASURE_UNIT = r"(?:tCO2e|CO2e|二氧化碳當量|新台幣|新臺幣|美元|NTD|TWD|兆元|億元|千萬元|百萬元|十萬元|萬元|兆|億|萬|仟元|千元|元|公噸|噸|公斤|公克|克|kg|kWh|MWh|GWh|GJ|TJ|焦耳|CMD|公升|立方公尺|立方米|m3|m³|噸水|平方公里|公頃|平方公尺|平方米|㎡|m2|公里|公尺|公分|毫米|米|坪|千瓦|kW|MW|GW|kWp|度|℃|°C|攝氏|ppm|ppb|年|個月|月|日|天|週|周|季|期|階段|張|項|件|人次|人|名|家|處|座|場|批|份|套|筆|戶|輛|台|條|小時|工時|人時|次|%|％)"
+_MEASURE_QUANTITY_UNIT_RE = re.compile(
+    rf"(?:約|逾|超過|超逾|達|至少|近|約莫|數|累計|合計|共|每年|每月|每季)?\s*{_MEASURE_VALUE}\s*{_MEASURE_UNIT}",
+    re.IGNORECASE,
+)
+_MEASURE_STANDALONE_RE = re.compile(
+    rf"""
+        %|％ |
+        {_MEASURE_RATIO} |
+        {_MEASURE_CHINESE_NUM} |
+        tCO2e|CO2e|二氧化碳當量 |
+        kWh|MWh|GWh|GJ|TJ|CMD |
+        ppm|ppb |
+        ℃|°C
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def has_measurable_signal(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    return bool(_MEASURE_STANDALONE_RE.search(text) or _MEASURE_QUANTITY_UNIT_RE.search(text))
+
+
+# feat_E: commitment verb signal (rule-based) — ported from official notebook Phase B-2
+_COMMIT_STRONG_RE = re.compile(r"""
+    承諾|宣示|宣告|宣布|宣佈|
+    將於|將在|擬於|預計於|預定於|規劃於|計畫於|
+    預計|預定|預計將|預定將|規劃將|計畫將|
+    致力於|力求
+""", re.VERBOSE)
+_COMMIT_WEAK_RE = re.compile(r"目標|設定|訂定|設立|制定|建立|規劃|計畫|決議", re.VERBOSE)
+_COMMIT_FUTURE_RE = re.compile(r"""
+    未來|短期|中期|長期|階段|期程|路徑|藍圖|
+    20\d{2}|民國\s*\d+|\d+\s*年(?:前|底|內)?|
+    [零〇一二兩三四五六七八九十百千萬億兆]+\s*年(?:前|底|內)?
+""", re.VERBOSE)
+_COMMIT_ESG_RE = re.compile(r"""
+    淨零|零碳|減碳|減量|減排|降碳|碳中和|碳盤查|盤查|查證|確信|
+    溫室氣體|範疇一|範疇二|範疇三|SBTi|RE100|再生能源|綠電|節能|節水|
+    汰換|導入|取得|使用|提高|提升|降低|減少|增加|改善|完成|達成|實現|
+    供應鏈|人權|職安|安全衛生|多元共融|生物多樣性|零毀林|永續|氣候|TCFD|TNFD|ISSB|IFRS|碳費
+""", re.VERBOSE)
+_COMMIT_FALSE_RE = re.compile(r"""
+    生產計畫|排程資訊|管理計畫|研究計畫|計畫書|專案計畫|
+    重大議題管理項目|目標設定情形|風險矩陣圖|氣候風險與機會矩陣圖|
+    預期損失|預期信用損失|預期成本|預期衝擊|預期風險|預估損失|預估成本
+""", re.VERBOSE)
+
+
+def has_commitment_signal(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    strong = bool(_COMMIT_STRONG_RE.search(text))
+    false_ctx = bool(_COMMIT_FALSE_RE.search(text))
+    if strong and not false_ctx:
+        return True
+    if not bool(_COMMIT_WEAK_RE.search(text)):
+        return False
+    has_future = bool(_COMMIT_FUTURE_RE.search(text))
+    has_esg = bool(_COMMIT_ESG_RE.search(text))
+    has_measure = has_measurable_signal(text)
+    if false_ctx and not (has_future and has_esg):
+        return False
+    return bool(has_future or (has_esg and has_measure))
+
+
+def build_hybrid_feature_map(csv_path: str) -> dict:
+    """Load GPT-4o hybrid feature CSV → {str(id): {feat_A, feat_B, feat_C, feat_D, feat_E}}.
+
+    Caller should pass config.HYBRID_TRAIN_FEAT_CSV for training/val data and
+    config.HYBRID_TEST_FEAT_CSV for test data.  For samples not in the CSV
+    (e.g. synthetic data) _resolve_hybrid_feats() falls back to rule-based C/E
+    and defaults A=B=D=0.
+    """
+    import csv as _csv
+    feat_map: dict = {}
+    feat_cols = [
+        "feat_A_is_historical", "feat_B_is_risk_disclosure",
+        "feat_C_is_measurable", "feat_D_has_hedging_words", "feat_E_has_commitment_verb",
+    ]
+    try:
+        with open(csv_path, encoding="utf-8", newline="") as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                sid = str(row.get("id", "")).strip()
+                if not sid:
+                    continue
+                feat_map[sid] = {col: int(float(row[col])) for col in feat_cols if col in row}
+    except FileNotFoundError:
+        print(f"[hybrid] WARNING: feature CSV not found: {csv_path}")
+    return feat_map
+
+
+def _resolve_hybrid_feats(text: str, sample_id: str, hybrid_map: Optional[dict]) -> dict:
+    """Return a 5-feature dict for one sample.
+
+    If hybrid_map has an entry for sample_id, use it (all 5 features).
+    Otherwise compute feat_C/E rule-based and set A=B=D=0 (safe defaults).
+    """
+    if hybrid_map and sample_id in hybrid_map:
+        return hybrid_map[sample_id]
+    feat_c = 1 if has_measurable_signal(text) else 0
+    feat_e = 1 if has_commitment_signal(text) else 0
+    return {
+        "feat_A_is_historical": 0,
+        "feat_B_is_risk_disclosure": 0,
+        "feat_C_is_measurable": feat_c,
+        "feat_D_has_hedging_words": 0,
+        "feat_E_has_commitment_verb": feat_e,
+    }
+
+
+def build_hybrid_prefix(feats: dict) -> str:
+    """Build a 5-token prefix from the feature dict: '[A=0][B=0][C=1][D=0][E=1] '."""
+    a = feats.get("feat_A_is_historical", 0)
+    b = feats.get("feat_B_is_risk_disclosure", 0)
+    c = feats.get("feat_C_is_measurable", 0)
+    d = feats.get("feat_D_has_hedging_words", 0)
+    e = feats.get("feat_E_has_commitment_verb", 0)
+    return f"[A={a}][B={b}][C={c}][D={d}][E={e}] "
 
 
 # ──────────────────────────────────────────────────────────────────────
