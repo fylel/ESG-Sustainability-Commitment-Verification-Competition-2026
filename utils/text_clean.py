@@ -183,6 +183,7 @@ DOMAIN_TOKENS = [
 ]
 
 _TOKENIZER = None
+_DOMAIN_TOKEN_PIECE_IDS: dict = {}  # token → [subword_ids] recorded BEFORE adding new tokens
 
 
 def build_tokenizer():
@@ -191,13 +192,41 @@ def build_tokenizer():
     Both the dataset and the model must use this so the embedding vocab size
     matches. The model calls resize_token_embeddings(len(build_tokenizer())).
     """
-    global _TOKENIZER
+    global _TOKENIZER, _DOMAIN_TOKEN_PIECE_IDS
     if _TOKENIZER is not None:
         return _TOKENIZER
     from transformers import AutoTokenizer  # lazy: keep cleaning import-light
     tok = AutoTokenizer.from_pretrained(config.PRETRAINED_MODEL)
     if config.USE_DOMAIN_TOKENS:
+        # Record subword pieces BEFORE adding new tokens so we can use them
+        # to warm-initialize the new embeddings in init_domain_token_embeddings().
+        _DOMAIN_TOKEN_PIECE_IDS = {
+            token: tok.convert_tokens_to_ids(tok.tokenize(token))
+            for token in DOMAIN_TOKENS
+        }
         added = tok.add_tokens(DOMAIN_TOKENS)
         print(f"[tokenizer] added {added} ESG domain tokens (vocab={len(tok)})")
     _TOKENIZER = tok
     return tok
+
+
+def init_domain_token_embeddings(model) -> None:
+    """Warm-initialize new domain token embeddings as the mean of their subword pieces.
+
+    Without this, new tokens start from random noise and need hundreds of steps
+    to escape — causing regression when training data is small (~3k samples).
+
+    Call once in ESGMultiTaskModel.__init__ right after resize_token_embeddings().
+    Requires build_tokenizer() to have been called first.
+    """
+    if not config.USE_DOMAIN_TOKENS or not _DOMAIN_TOKEN_PIECE_IDS:
+        return
+    emb = model.encoder.embeddings.word_embeddings.weight.data
+    n_init = 0
+    for token, piece_ids in _DOMAIN_TOKEN_PIECE_IDS.items():
+        if not piece_ids:
+            continue
+        new_id = _TOKENIZER.convert_tokens_to_ids(token)
+        emb[new_id] = emb[piece_ids].mean(dim=0)
+        n_init += 1
+    print(f"[domain tokens] warm-initialized {n_init} embeddings from subword averages")

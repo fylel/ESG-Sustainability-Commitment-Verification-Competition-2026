@@ -22,7 +22,7 @@ from transformers import AutoModel
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from configs import config
-from utils.text_clean import build_tokenizer
+from utils.text_clean import build_tokenizer, init_domain_token_embeddings
 
 
 class TaskHead(nn.Module):
@@ -101,6 +101,7 @@ class ESGMultiTaskModel(nn.Module):
         # (and so checkpoints stay shape-compatible between train/submit).
         if config.USE_DOMAIN_TOKENS:
             self.encoder.resize_token_embeddings(len(build_tokenizer()))
+            init_domain_token_embeddings(self)  # warm-init: mean of subword pieces
 
         self.heads = nn.ModuleDict({
             task: TaskHead(hidden_dim, n_cls, dropout)
